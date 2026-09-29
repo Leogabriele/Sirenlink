@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SirenLink | 🚗 Vehicle Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: #0f1923; color: #e0e8f0; margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ── Connection Status Bar ── */
+    .conn-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1.5rem; background: #121f2e; border-bottom: 1px solid #1e3048; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+    .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: pulse-dot 2s infinite; display: inline-block; }
+    .conn-dot.red { background: #e11d48; box-shadow: 0 0 8px #e11d48; animation: none; }
+    @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+
+    /* ── Main Layout ── */
+    .veh-body { display: grid; grid-template-columns: 1fr 340px; flex: 1; overflow: hidden; }
+
+    /* ── Left Column ── */
+    .veh-main { display: flex; flex-direction: column; overflow: hidden; }
+    .veh-nav { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1.5rem; background: #121f2e; border-bottom: 1px solid #1e3048; }
+    .nav-brand-veh { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 1rem; color: #ea580c; }
+
+    /* Map */
+    .veh-map-wrap { flex: 0 0 260px; position: relative; border-bottom: 1px solid #1e3048; }
+    #veh-map { width: 100%; height: 100%; }
+    .map-tip { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: #e0e8f0; padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.72rem; z-index: 999; pointer-events: none; }
+
+    /* ── Instruction Card ── */
+    .instr-card { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1.5rem; overflow: hidden; }
+    .instr-inner { text-align: center; width: 100%; max-width: 500px; }
+
+    /* State Styles */
+    .instr-state { display: none; flex-direction: column; align-items: center; gap: 0.75rem; animation: fadeIn 0.4s ease; }
+    .instr-state.active { display: flex; }
+    @keyframes fadeIn { from{opacity:0;transform:scale(0.97);} to{opacity:1;transform:scale(1);} }
+
+    /* STANDBY */
+    #state-standby .state-icon { font-size: 3rem; }
+    #state-standby .state-title { font-family: 'Manrope',sans-serif; font-size: 1.8rem; font-weight: 800; color: #4ade80; }
+    #state-standby .state-sub { color: #5a7a94; font-size: 0.9rem; }
+
+    /* AMBULANCE_DETECTED */
+    #state-detected .state-icon { font-size: 3rem; }
+    #state-detected .state-title { font-family: 'Manrope',sans-serif; font-size: 1.8rem; font-weight: 800; color: #facc15; animation: pulse-text 1.5s infinite; }
+    #state-detected .state-dist { font-family: 'JetBrains Mono',monospace; font-size: 2.5rem; font-weight: 700; color: #fbbf24; }
+    #state-detected .state-sub { color: #a0aec0; font-size: 0.9rem; }
+
+    /* PREPARE */
+    #state-prepare .state-icon { font-size: 3rem; animation: bounce-y 0.8s infinite alternate; }
+    #state-prepare .state-title { font-family: 'Manrope',sans-serif; font-size: 1.8rem; font-weight: 800; color: #fb923c; }
+    #state-prepare .state-dist { font-family: 'JetBrains Mono',monospace; font-size: 2.5rem; font-weight: 700; color: #fb923c; }
+
+    /* MOVE LEFT / RIGHT */
+    .move-card { border-radius: 16px; padding: 2rem; width: 100%; max-width: 420px; border: 4px solid #e11d48; background: rgba(225,29,72,0.08); animation: flash-border 1s infinite alternate; }
+    .move-card .move-ambu { font-size: 1.1rem; font-weight: 700; color: #e11d48; margin-bottom: 0.5rem; animation: pulse-text 0.8s infinite; }
+    .move-card .move-dist { font-family: 'JetBrains Mono',monospace; font-size: 2rem; font-weight: 700; color: #fca5a5; margin-bottom: 1rem; }
+    .move-card .move-arrow { font-family: 'Manrope',sans-serif; font-size: 4rem; font-weight: 800; color: #e11d48; line-height: 1; }
+    .move-card .move-instr { font-family: 'Manrope',sans-serif; font-size: 2rem; font-weight: 800; color: white; margin-top: 0.25rem; }
+
+    /* PASSING */
+    #state-passing .state-icon { font-size: 3.5rem; animation: siren-flash 0.3s infinite alternate; }
+    #state-passing .state-title { font-family: 'Manrope',sans-serif; font-size: 2rem; font-weight: 800; color: #e11d48; animation: pulse-text 0.5s infinite; }
+    #state-passing .state-dist { font-family: 'JetBrains Mono',monospace; font-size: 2.5rem; color: #fca5a5; }
+
+    /* ROAD CLEARED */
+    #state-cleared .state-icon { font-size: 3rem; }
+    #state-cleared .state-title { font-family: 'Manrope',sans-serif; font-size: 2rem; font-weight: 800; color: #4ade80; }
+    #state-cleared .state-sub { color: #5a7a94; }
+
+    @keyframes pulse-text { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
+    @keyframes bounce-y { from{transform:translateY(0);} to{transform:translateY(-8px);} }
+    @keyframes flash-border { from{border-color:#e11d48;box-shadow:0 0 10px rgba(225,29,72,0.3);} to{border-color:#ff6b6b;box-shadow:0 0 30px rgba(225,29,72,0.7);} }
+    @keyframes siren-flash { from{opacity:1;} to{opacity:0.3;} }
+
+    /* Acknowledge Btn */
+    .ack-btn { margin-top: 1rem; padding: 0.75rem 2rem; border: 2px solid #e11d48; border-radius: 8px; background: rgba(225,29,72,0.15); color: #e11d48; font-family: 'Manrope',sans-serif; font-weight: 800; font-size: 1rem; cursor: pointer; letter-spacing: 1px; transition: all 0.2s; }
+    .ack-btn:hover { background: #e11d48; color: white; }
+
+    /* ── Right Column ── */
+    .veh-side { background: #121f2e; border-left: 1px solid #1e3048; display: flex; flex-direction: column; overflow: hidden; }
+    .side-section { padding: 1rem; border-bottom: 1px solid #1e3048; }
+    .side-section h4 { font-family: 'JetBrains Mono',monospace; font-size: 0.7rem; letter-spacing: 2px; color: #5a7a94; text-transform: uppercase; margin-bottom: 0.75rem; }
+
+    /* Info Grid */
+    .info-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.75rem; font-size: 0.85rem; }
+    .info-label { color: #5a7a94; font-weight: 600; }
+    .info-val { font-family: 'JetBrains Mono',monospace; color: #e0e8f0; }
+    .info-val.highlight { color: #e11d48; font-weight: 700; }
+
+    /* Alert History */
+    .history-scroll { overflow-y: auto; flex: 1; }
+    .history-list { list-style: none; padding: 0 1rem 1rem; margin: 0; }
+    .history-list li { padding: 0.6rem 0; border-bottom: 1px solid #1e3048; display: flex; justify-content: space-between; align-items: flex-start; font-size: 0.82rem; }
+    .history-title { font-weight: 600; color: #e0e8f0; }
+    .history-time { font-family: 'JetBrains Mono',monospace; color: #5a7a94; font-size: 0.72rem; }
+    .history-instr { font-family: 'JetBrains Mono',monospace; color: #ea580c; font-size: 0.72rem; }
+    .history-empty { color: #3a5268; text-align: center; padding: 1rem 0; font-size: 0.85rem; }
+
+    /* Place hint */
+    .place-hint-bar { background: rgba(234,88,12,0.1); border: 1px solid rgba(234,88,12,0.3); border-radius: 6px; padding: 0.4rem 0.75rem; margin: 0.5rem 1rem; font-size: 0.75rem; color: #fb923c; display: none; }
+    .place-hint-bar.show { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Connection Status Bar -->
+<div class="conn-bar">
+  <div style="display:flex;align-items:center;gap:0.5rem;">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span id="conn-text" style="color:#4ade80;font-weight:700;">LIVE</span>
+    <span style="color:#5a7a94;">— SirenLink Vehicle Node</span>
+  </div>
+  <div style="display:flex;gap:1rem;align-items:center;">
+    <span style="color:#5a7a94;">Vehicle ID:</span>
+    <span style="color:#ea580c;font-weight:700;" id="top-veh-id">VEH-V01</span>
+    <a href="/" style="color:#5a7a94;text-decoration:none;font-size:0.8rem;">← Home</a>
+  </div>
+</div>
+
+<!-- Body -->
+<div class="veh-body">
+  <!-- Left: Map + Instruction -->
+  <div class="veh-main">
+    <div class="veh-nav">
+      <div class="nav-brand-veh">🚗 SIRENLINK VEHICLE</div>
+      <div style="display:flex;gap:0.5rem;">
+        <button onclick="setPlaceMode('vehicle')" style="padding:0.35rem 0.7rem;border:1px solid #ea580c;border-radius:6px;background:transparent;color:#ea580c;cursor:pointer;font-size:0.72rem;font-family:'Manrope',sans-serif;font-weight:700;">📍 Set My Location</button>
+      </div>
+    </div>
+    <div class="veh-map-wrap">
+      <div id="veh-map"></div>
+      <div class="map-tip" id="map-tip">Click "Set My Location" then click the map</div>
+    </div>
+    <div class="place-hint-bar" id="place-hint">🗺️ Click anywhere on the map to set your vehicle location</div>
+    <div class="instr-card">
+      <div class="instr-inner">
+        <!-- STANDBY -->
+        <div class="instr-state active" id="state-standby">
+          <div class="state-icon">🟢</div>
+          <div class="state-title">No Emergency Nearby</div>
+          <div class="state-sub">SirenLink is monitoring the surroundings.</div>
+        </div>
+        <!-- AMBULANCE_DETECTED -->
+        <div class="instr-state" id="state-detected">
+          <div class="state-icon">🟡</div>
+          <div class="state-title">AMBULANCE DETECTED</div>
+          <div class="state-dist" id="det-dist">--</div>
+          <div class="state-sub">Stay alert. Ambulance is nearby.</div>
+        </div>
+        <!-- PREPARE -->
+        <div class="instr-state" id="state-prepare">
+          <div class="state-icon">🟠</div>
+          <div class="state-title">PREPARE TO GIVE WAY</div>
+          <div class="state-dist" id="prep-dist">--</div>
+        </div>
+        <!-- MOVE LEFT -->
+        <div class="instr-state" id="state-move-left">
+          <div class="move-card">
+            <div class="move-ambu">🚨 AMBULANCE APPROACHING</div>
+            <div class="move-dist" id="ml-dist">--</div>
+            <div class="move-arrow">←</div>
+            <div class="move-instr">MOVE LEFT</div>
+          </div>
+          <div class="give-way-box" id="give-way-box-left" style="margin-top:1rem; padding:1.2rem; border: 1px solid #1e3048; border-radius:10px; background:#0a1520; width:100%; max-width:420px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <p style="margin-bottom:0.75rem; font-weight:700; font-size:1.1rem; color:#fca5a5; display:flex; align-items:center; justify-content:center; gap:0.5rem;">⚠️ Did you give way?</p>
+            <button onclick="giveWayYes()" style="width:100%; padding:0.75rem; background:#4ade80; color:#0f1923; border:none; border-radius:6px; font-weight:800; cursor:pointer; font-size:1rem; transition:transform 0.1s;" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='none'">Yes, I moved</button>
+          </div>
+          <div class="thank-you-box hidden" id="thank-you-box-left" style="margin-top:1rem; padding:1.2rem; border: 2px solid #4ade80; border-radius:10px; background:rgba(74,222,128,0.08); color:#4ade80; font-weight:700; font-size:1.05rem; text-align:center; width:100%; max-width:420px; animation: bounce-in 0.5s ease;">
+            🎉 Thank you! You helped for a better cause. ❤️🚑
+          </div>
+          <button class="ack-btn" onclick="acknowledgeAlert()" style="margin-top:1rem;">[ ✓ DISMISS ]</button>
+        </div>
+        <!-- MOVE RIGHT -->
+        <div class="instr-state" id="state-move-right">
+          <div class="move-card">
+            <div class="move-ambu">🚨 AMBULANCE APPROACHING</div>
+            <div class="move-dist" id="mr-dist">--</div>
+            <div class="move-arrow">→</div>
+            <div class="move-instr">MOVE RIGHT</div>
+          </div>
+          <div class="give-way-box" id="give-way-box-right" style="margin-top:1rem; padding:1.2rem; border: 1px solid #1e3048; border-radius:10px; background:#0a1520; width:100%; max-width:420px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <p style="margin-bottom:0.75rem; font-weight:700; font-size:1.1rem; color:#fca5a5; display:flex; align-items:center; justify-content:center; gap:0.5rem;">⚠️ Did you give way?</p>
+            <button onclick="giveWayYes()" style="width:100%; padding:0.75rem; background:#4ade80; color:#0f1923; border:none; border-radius:6px; font-weight:800; cursor:pointer; font-size:1rem; transition:transform 0.1s;" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='none'">Yes, I moved</button>
+          </div>
+          <div class="thank-you-box hidden" id="thank-you-box-right" style="margin-top:1rem; padding:1.2rem; border: 2px solid #4ade80; border-radius:10px; background:rgba(74,222,128,0.08); color:#4ade80; font-weight:700; font-size:1.05rem; text-align:center; width:100%; max-width:420px; animation: bounce-in 0.5s ease;">
+            🎉 Thank you! You helped for a better cause. ❤️🚑
+          </div>
+          <button class="ack-btn" onclick="acknowledgeAlert()" style="margin-top:1rem;">[ ✓ DISMISS ]</button>
+        </div>
+        <!-- PASSING -->
+        <div class="instr-state" id="state-passing">
+          <div class="state-icon">🚨</div>
+          <div class="state-title">AMBULANCE PASSING</div>
+          <div class="state-dist" id="pass-dist">--</div>
+        </div>
+        <!-- ROAD CLEARED -->
+        <div class="instr-state" id="state-cleared">
+          <div class="state-icon">✅</div>
+          <div class="state-title">ROAD CLEARED</div>
+          <div class="state-sub">Thank you for giving way. Stay safe.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Side Panel -->
+  <div class="veh-side">
+    <!-- Ambulance Info -->
+    <div class="side-section">
+      <h4>🚑 Ambulance Information</h4>
+      <div class="info-grid">
+        <span class="info-label">ID:</span>       <span class="info-val" id="v-amb-id">--</span>
+        <span class="info-label">Status:</span>   <span class="info-val highlight" id="v-status">STANDBY</span>
+        <span class="info-label">Distance:</span> <span class="info-val" id="v-dist">--</span>
+        <span class="info-label">Speed:</span>    <span class="info-val" id="v-speed">--</span>
+        <span class="info-label">Heading:</span>  <span class="info-val" id="v-heading">--</span>
+        <span class="info-label">Hospital:</span> <span class="info-val" id="v-hosp">--</span>
+        <span class="info-label">Hosp ETA:</span><span class="info-val" id="v-eta">--</span>
+      </div>
+    </div>
+
+    <!-- My Location -->
+    <div class="side-section">
+      <h4>📍 My Location</h4>
+      <div class="info-grid">
+        <span class="info-label">Lat:</span>  <span class="info-val" id="my-lat">--</span>
+        <span class="info-label">Lng:</span>  <span class="info-val" id="my-lng">--</span>
+      </div>
+    </div>
+
+    <!-- Device Status -->
+    <div class="side-section">
+      <h4>📡 Device Status</h4>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.82rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;"><span class="conn-dot" id="ws-status-dot" style="animation:none;background:#e11d48;box-shadow:0 0 8px #e11d48;"></span><span>SirenLink Server</span></div>
+        <div style="display:flex;align-items:center;gap:0.5rem;"><span class="conn-dot" id="gps-dot" style="background:#4ade80;box-shadow:0 0 8px #4ade80;animation:none;"></span><span>GPS (Simulated)</span></div>
+        <div style="display:flex;align-items:center;gap:0.5rem;"><span class="conn-dot" style="background:#4ade80;box-shadow:0 0 8px #4ade80;animation:none;"></span><span>SirenLink Protocol</span></div>
+      </div>
+    </div>
+
+    <!-- Alert History -->
+    <div class="side-section" style="padding-bottom:0;border-bottom:none;">
+      <h4>🔔 Alert History</h4>
+    </div>
+    <div class="history-scroll">
+      <ul class="history-list" id="history-list">
+        <li class="history-empty">No alerts yet.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+// ─────────────────────────────────────────
+// Dynamic Vehicle ID (from URL ?id=XXX or auto-generated)
+// ─────────────────────────────────────────
+function getOrCreateVehicleId() {
+  const params = new URLSearchParams(window.location.search);
+  let id = params.get('id');
+  if (!id || id.trim() === '') {
+    // Auto-generate a unique random ID and inject it into the URL
+    id = 'VEH-' + Math.floor(100 + Math.random() * 900);
+    const newUrl = window.location.pathname + '?id=' + id;
+    window.history.replaceState(null, '', newUrl);
+  }
+  return id;
+}
+const VEH_ID = getOrCreateVehicleId();
+const WS_URL = `ws://${location.host}/ws/vehicle/${VEH_ID}`;
+
+const state = {
+  ws: null,
+  connected: false,
+  vehLat: null, vehLng: null,
+  ambLat: null, ambLng: null,
+  ambHeading: 0, ambSpeed: 0,
+  hospName: '--',
+  hospEta: null,
+  currentInstruction: 'STANDBY',
+  placeMode: null,
+  lastAlertAcked: false,
+  audioCtx: null,
+};
+
+let map, vehMarker, ambMarker, hospMarker;
+
+// ─────────────────────────────────────────
+// Map
+// ─────────────────────────────────────────
+function initMap() {
+  map = L.map('veh-map').setView([19.0760, 72.8777], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+  map.on('click', (e) => {
+    if (state.placeMode !== 'vehicle') return;
+    placeMyVehicle(e.latlng.lat, e.latlng.lng);
+    setPlaceMode(null);
+  });
+}
+
+function createIcon(emoji, color) {
+  return L.divIcon({
+    html: `<div style="background:${color};border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:19px;border:3px solid white;box-shadow:0 2px 12px rgba(0,0,0,0.4);">${emoji}</div>`,
+    className: '', iconSize: [40,40], iconAnchor: [20,20], popupAnchor: [0,-20]
+  });
+}
+
+function placeMyVehicle(lat, lng) {
+  state.vehLat = lat; state.vehLng = lng;
+  if (vehMarker) map.removeLayer(vehMarker);
+  vehMarker = L.marker([lat, lng], { icon: createIcon('🚗', '#ea580c'), draggable: true })
+    .addTo(map).bindPopup(`🚗 ${VEH_ID} (You)`);
+  vehMarker.on('dragend', (e) => {
+    const p = e.target.getLatLng();
+    state.vehLat = p.lat; state.vehLng = p.lng;
+    updateMyLocation();
+    sendVehicleLocation();
+    if (['MOVE_LEFT', 'MOVE_RIGHT'].includes(state.currentInstruction)) {
+      giveWayYes();
+    }
+    recalcInstruction();
+  });
+  updateMyLocation();
+  sendVehicleLocation();
+  recalcInstruction();
+  document.getElementById('map-tip').style.display = 'none';
+}
+
+function updateMyLocation() {
+  document.getElementById('my-lat').textContent = state.vehLat ? state.vehLat.toFixed(5) : '--';
+  document.getElementById('my-lng').textContent = state.vehLng ? state.vehLng.toFixed(5) : '--';
+}
+
+// ─────────────────────────────────────────
+// Place Mode
+// ─────────────────────────────────────────
+function setPlaceMode(mode) {
+  state.placeMode = mode;
+  const hint = document.getElementById('place-hint');
+  if (mode) {
+    hint.classList.add('show');
+    map.getContainer().style.cursor = 'crosshair';
+  } else {
+    hint.classList.remove('show');
+    map.getContainer().style.cursor = '';
+  }
+}
+
+// ─────────────────────────────────────────
+// 5-State Decision Engine (Client-Side Mirror)
+// ─────────────────────────────────────────
+const INSTRUCTION_STATES = [
+  'STANDBY','AMBULANCE_DETECTED','PREPARE_TO_GIVE_WAY',
+  'MOVE_LEFT','MOVE_RIGHT','AMBULANCE_PASSING','ROAD_CLEARED'
+];
+
+function recalcInstruction() {
+  // Use server-provided instruction if available
+  // Local recalc only if server hasn't sent one yet
+  if (!state.ambLat || !state.vehLat) return;
+  const dist = haversine(state.ambLat, state.ambLng, state.vehLat, state.vehLng);
+  let instr;
+  if (!serverEmergencyActive) { instr = 'STANDBY'; }
+  else if (dist > 500) { instr = 'STANDBY'; }
+  else if (dist > 200) { instr = 'AMBULANCE_DETECTED'; }
+  else if (dist > 50) {
+    const bearing = calcBearing(state.ambLat, state.ambLng, state.vehLat, state.vehLng);
+    const diff = (bearing - state.ambHeading + 360) % 360;
+    if (diff < 45 || diff > 315) instr = 'PREPARE_TO_GIVE_WAY';
+    else if (diff >= 45 && diff < 180) instr = 'MOVE_LEFT';
+    else instr = 'MOVE_RIGHT';
+  } else {
+    instr = 'AMBULANCE_PASSING';
+  }
+  applyInstruction(instr, dist);
+}
+
+let serverEmergencyActive = false;
+
+function applyInstruction(instruction, distToAmb) {
+  if (instruction === state.currentInstruction && instruction !== 'STANDBY') {
+    // Just update distance values
+    updateDistDisplays(distToAmb);
+    return;
+  }
+
+  const prev = state.currentInstruction;
+  state.currentInstruction = instruction;
+
+  // Reset give way status if transitioning back to standby / cleared
+  if (['STANDBY', 'ROAD_CLEARED'].includes(instruction)) {
+    resetGiveWayUI();
+  }
+
+  // Hide all states
+  document.querySelectorAll('.instr-state').forEach(el => el.classList.remove('active'));
+
+  updateDistDisplays(distToAmb);
+  updateInfoPanel(instruction, distToAmb);
+
+  // Show the new state
+  const stateMap = {
+    'STANDBY':             'state-standby',
+    'AMBULANCE_DETECTED':  'state-detected',
+    'PREPARE_TO_GIVE_WAY': 'state-prepare',
+    'MOVE_LEFT':           'state-move-left',
+    'MOVE_RIGHT':          'state-move-right',
+    'AMBULANCE_PASSING':   'state-passing',
+    'ROAD_CLEARED':        'state-cleared',
+  };
+  const el = document.getElementById(stateMap[instruction]);
+  if (el) el.classList.add('active');
+
+  // Zoom map to show vehicle and ambulance clearly
+  if (['MOVE_LEFT', 'MOVE_RIGHT', 'AMBULANCE_PASSING'].includes(instruction) && state.vehLat && state.ambLat) {
+    const bounds = L.latLngBounds([
+      [state.vehLat, state.vehLng],
+      [state.ambLat, state.ambLng]
+    ]);
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+  }
+
+  // Sound for escalating alerts
+  if (['MOVE_LEFT','MOVE_RIGHT','AMBULANCE_PASSING'].includes(instruction) && !['MOVE_LEFT','MOVE_RIGHT','AMBULANCE_PASSING'].includes(prev)) {
+    playAlert();
+  }
+
+  // Log to history if new escalation
+  if (instruction !== 'STANDBY' && instruction !== prev) {
+    addHistory(instruction, distToAmb);
+  }
+}
+
+function updateDistDisplays(dist) {
+  const fmt = d => d !== null && d !== undefined ? formatDist(d) : '--';
+  const d = fmt(dist);
+  const ids = ['det-dist','prep-dist','ml-dist','mr-dist','pass-dist'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = d; });
+}
+
+function updateInfoPanel(instruction, dist) {
+  document.getElementById('v-amb-id').textContent = state.ambLat ? 'AMB-A01' : '--';
+  document.getElementById('v-status').textContent = instruction;
+  document.getElementById('v-dist').textContent = dist !== null ? formatDist(dist) : '--';
+  document.getElementById('v-speed').textContent = state.ambSpeed ? `${state.ambSpeed} km/h` : '--';
+  document.getElementById('v-heading').textContent = state.ambHeading !== null ? `${Math.round(state.ambHeading)}°` : '--';
+  document.getElementById('v-hosp').textContent = state.hospName;
+  document.getElementById('v-eta').textContent = state.hospEta !== null ? formatEta(state.hospEta) : '--';
+}
+
+function acknowledgeAlert() {
+  state.lastAlertAcked = true;
+  applyInstruction('STANDBY', null);
+  addHistory('ACKNOWLEDGED', null);
+}
+
+function addHistory(instruction, dist) {
+  const ul = document.getElementById('history-list');
+  const empty = ul.querySelector('.history-empty');
+  if (empty) empty.remove();
+  const labels = {
+    'AMBULANCE_DETECTED':  '🟡 Ambulance Detected',
+    'PREPARE_TO_GIVE_WAY': '🟠 Prepare to Give Way',
+    'MOVE_LEFT':           '🔴 MOVE LEFT',
+    'MOVE_RIGHT':          '🔴 MOVE RIGHT',
+    'AMBULANCE_PASSING':   '🚨 Ambulance Passing',
+    'ROAD_CLEARED':        '✅ Road Cleared',
+    'ACKNOWLEDGED':        '✓ Acknowledged',
+  };
+  const li = document.createElement('li');
+  li.innerHTML = `
+    <div>
+      <div class="history-title">${labels[instruction] || instruction}</div>
+      <div class="history-time">${new Date().toLocaleTimeString()}</div>
+    </div>
+    ${dist !== null ? `<div class="history-instr">${formatDist(dist)}</div>` : ''}
+  `;
+  ul.prepend(li);
+}
+
+// ─────────────────────────────────────────
+// WebSocket
+// ─────────────────────────────────────────
+function connectWS() {
+  try {
+    state.ws = new WebSocket(WS_URL);
+    state.ws.onopen = () => {
+      state.connected = true;
+      setConnStatus(true);
+      if (state.vehLat) {
+        sendVehicleLocation();
+      } else {
+        // Automatically place vehicle with random offset in Mumbai on load
+        const offsetLat = (Math.random() - 0.5) * 0.015;
+        const offsetLng = (Math.random() - 0.5) * 0.015;
+        placeMyVehicle(19.0760 + offsetLat, 72.8777 + offsetLng);
+      }
+    };
+    state.ws.onclose = () => { state.connected = false; setConnStatus(false); setTimeout(connectWS, 3000); };
+    state.ws.onerror = () => { state.connected = false; setConnStatus(false); };
+    state.ws.onmessage = (e) => { try { handleServerMsg(JSON.parse(e.data)); } catch(_){} };
+  } catch(e) { setTimeout(connectWS, 3000); }
+}
+
+function sendVehicleLocation() {
+  if (!state.vehLat || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  state.ws.send(JSON.stringify({ type: 'vehicle_location', lat: state.vehLat, lng: state.vehLng }));
+}
+
+function animateMarker(marker, endPos, duration = 500) {
+  if (!marker) return;
+  const start = marker.getLatLng();
+  const startTime = performance.now();
+  
+  if (marker._animFrame) cancelAnimationFrame(marker._animFrame);
+  
+  function tick(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    const lat = start.lat + (endPos[0] - start.lat) * progress;
+    const lng = start.lng + (endPos[1] - start.lng) * progress;
+    marker.setLatLng([lat, lng]);
+    
+    if (progress < 1) {
+      marker._animFrame = requestAnimationFrame(tick);
+    } else {
+      marker._animFrame = null;
+    }
+  }
+  marker._animFrame = requestAnimationFrame(tick);
+}
+
+function handleServerMsg(msg) {
+  const t = msg.type;
+
+  if (t === 'state_sync' || t === 'state_update' || t === 'emergency_activated' || t === 'emergency_deactivated' || t === 'ambulance_arrived') {
+    // Update ambulance position
+    if (msg.ambulance_lat !== null && msg.ambulance_lat !== undefined) {
+      state.ambLat = msg.ambulance_lat;
+      state.ambLng = msg.ambulance_lng;
+      state.ambHeading = msg.ambulance_heading || 0;
+      state.ambSpeed = msg.ambulance_speed || 0;
+
+      // Update ambulance marker on map
+      if (state.ambLat) {
+        if (!ambMarker) {
+          ambMarker = L.marker([state.ambLat, state.ambLng], { icon: createIcon('🚑', '#e11d48') })
+            .addTo(map).bindPopup('🚑 AMB-A01');
+        } else {
+          animateMarker(ambMarker, [state.ambLat, state.ambLng], 500);
+        }
+      }
+    }
+    if (msg.hospital_lat !== null && msg.hospital_lat !== undefined) {
+      if (!hospMarker) {
+        hospMarker = L.marker([msg.hospital_lat, msg.hospital_lng], { icon: createIcon('🏥','#0d9488') })
+          .addTo(map).bindPopup('🏥 Hospital');
+      } else {
+        hospMarker.setLatLng([msg.hospital_lat, msg.hospital_lng]);
+      }
+      state.hospName = msg.hospital_name || 'City General Hospital';
+    }
+    if (msg.eta_seconds !== null && msg.eta_seconds !== undefined) {
+      state.hospEta = msg.eta_seconds;
+    }
+
+    serverEmergencyActive = msg.emergency_active || false;
+
+    if (msg.vehicles) {
+      const selfVeh = msg.vehicles.find(v => v.id === VEH_ID);
+      if (selfVeh) {
+        // Sync position if changed externally
+        if (selfVeh.lat !== state.vehLat || selfVeh.lng !== state.vehLng) {
+          state.vehLat = selfVeh.lat;
+          state.vehLng = selfVeh.lng;
+          if (vehMarker) {
+            vehMarker.setLatLng([state.vehLat, state.vehLng]);
+          } else {
+            vehMarker = L.marker([state.vehLat, state.vehLng], { icon: createIcon('🚗', '#ea580c'), draggable: true })
+              .addTo(map).bindPopup(`🚗 ${VEH_ID} (You)`);
+            vehMarker.on('dragend', (e) => {
+              const p = e.target.getLatLng();
+              state.vehLat = p.lat; state.vehLng = p.lng;
+              updateMyLocation();
+              sendVehicleLocation();
+              if (['MOVE_LEFT', 'MOVE_RIGHT'].includes(state.currentInstruction)) {
+                giveWayYes();
+              }
+              recalcInstruction();
+            });
+          }
+          updateMyLocation();
+          recalcInstruction();
+          document.getElementById('map-tip').style.display = 'none';
+        }
+
+        if (selfVeh.moved) {
+          state.vehicleMoved = true;
+          const qL = document.getElementById('give-way-box-left');
+          const tL = document.getElementById('thank-you-box-left');
+          const qR = document.getElementById('give-way-box-right');
+          const tR = document.getElementById('thank-you-box-right');
+          if (qL) qL.classList.add('hidden');
+          if (tL) tL.classList.remove('hidden');
+          if (qR) qR.classList.add('hidden');
+          if (tR) tR.classList.remove('hidden');
+          if (state.buzzInterval) {
+            clearInterval(state.buzzInterval);
+            state.buzzInterval = null;
+          }
+        }
+      }
+    }
+
+    if (t === 'emergency_deactivated' || t === 'ambulance_arrived') {
+      if (t === 'ambulance_arrived') {
+        applyInstruction('ROAD_CLEARED', null);
+        addHistory('ROAD_CLEARED', null);
+      } else {
+        applyInstruction('STANDBY', null);
+      }
+      serverEmergencyActive = false;
+    } else if (msg.vehicle_instruction) {
+      // Use server-computed instruction
+      const dist = msg.distance_to_vehicle;
+      applyInstruction(msg.vehicle_instruction, dist);
+    }
+  }
+}
+
+function setConnStatus(connected) {
+  document.getElementById('conn-dot').className = 'conn-dot' + (connected ? '' : ' red');
+  const txt = document.getElementById('conn-text');
+  txt.textContent = connected ? 'LIVE' : 'DISCONNECTED';
+  txt.style.color = connected ? '#4ade80' : '#e11d48';
+  document.getElementById('ws-status-dot').style.background = connected ? '#4ade80' : '#e11d48';
+  document.getElementById('ws-status-dot').style.boxShadow = connected ? '0 0 8px #4ade80' : '0 0 8px #e11d48';
+}
+
+// ─────────────────────────────────────────
+// Audio Alert (10 Seconds Dual Tone Buzzer, Stops on Give Way)
+// ─────────────────────────────────────────
+function playAlert() {
+  try {
+    if (state.buzzInterval) {
+      clearInterval(state.buzzInterval);
+      state.buzzInterval = null;
+    }
+    if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = state.audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    let durationMs = 10000; // Extended to 10 seconds
+    let elapsedMs = 0;
+    let highTone = true;
+    
+    state.buzzInterval = setInterval(() => {
+      if (elapsedMs >= durationMs || state.vehicleMoved || !['MOVE_LEFT', 'MOVE_RIGHT', 'AMBULANCE_PASSING'].includes(state.currentInstruction)) {
+        clearInterval(state.buzzInterval);
+        state.buzzInterval = null;
+        return;
+      }
+      elapsedMs += 400;
+      
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.value = highTone ? 950 : 750;
+      highTone = !highTone;
+      g.gain.setValueAtTime(0.08, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime);
+      o.stop(ctx.currentTime + 0.35);
+    }, 400);
+  } catch(e) {}
+}
+
+function giveWayYes() {
+  state.vehicleMoved = true;
+  if (state.buzzInterval) {
+    clearInterval(state.buzzInterval);
+    state.buzzInterval = null;
+  }
+  
+  const qL = document.getElementById('give-way-box-left');
+  const tL = document.getElementById('thank-you-box-left');
+  const qR = document.getElementById('give-way-box-right');
+  const tR = document.getElementById('thank-you-box-right');
+  
+  if (qL) qL.classList.add('hidden');
+  if (tL) tL.classList.remove('hidden');
+  if (qR) qR.classList.add('hidden');
+  if (tR) tR.classList.remove('hidden');
+
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({ type: 'vehicle_moved' }));
+  }
+}
+
+function resetGiveWayUI() {
+  state.vehicleMoved = false;
+  
+  const qL = document.getElementById('give-way-box-left');
+  const tL = document.getElementById('thank-you-box-left');
+  const qR = document.getElementById('give-way-box-right');
+  const tR = document.getElementById('thank-you-box-right');
+  
+  if (qL) qL.classList.remove('hidden');
+  if (tL) tL.classList.add('hidden');
+  if (qR) qR.classList.remove('hidden');
+  if (tR) tR.classList.add('hidden');
+}
+
+// ─────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const a = Math.sin(r(lat2-lat1)/2)**2 + Math.cos(r(lat1))*Math.cos(r(lat2))*Math.sin(r(lng2-lng1)/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function calcBearing(lat1, lng1, lat2, lng2) {
+  const r = x => x * Math.PI / 180;
+  const dLng = r(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(r(lat2));
+  const x = Math.cos(r(lat1)) * Math.sin(r(lat2)) - Math.sin(r(lat1)) * Math.cos(r(lat2)) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function formatDist(m) {
+  return m >= 1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m';
+}
+function formatEta(s) {
+  if (!s || s > 9999) return '--';
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+// ─────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Inject dynamic vehicle ID into all static references in the HTML
+  document.title = `SirenLink | 🚗 Vehicle ${VEH_ID}`;
+  const topId = document.getElementById('top-veh-id');
+  if (topId) topId.textContent = VEH_ID;
+
+  initMap();
+  connectWS();
+  setConnStatus(false);
+});
+</script>
+</body>
+</html>

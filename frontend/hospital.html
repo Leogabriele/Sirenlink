@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SirenLink | 🏥 Hospital Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: #0a1520; color: #e0e8f0; margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ── Connection Status Bar ── */
+    .conn-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1.5rem; background: #060f18; border-bottom: 1px solid #1e3048; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+    .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: pulse-dot 2s infinite; display: inline-block; }
+    .conn-dot.red { background: #e11d48; box-shadow: 0 0 8px #e11d48; animation: none; }
+    @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+    /* ── Nav ── */
+    .hosp-nav { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1.5rem; background: #060f18; border-bottom: 1px solid #1e3048; }
+    .nav-brand-h { font-family: 'Manrope',sans-serif; font-weight: 800; font-size: 1.1rem; color: #0d9488; }
+
+    /* ── Stats Row ── */
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; padding: 0.75rem 1rem; background: #060f18; border-bottom: 1px solid #1e3048; }
+    .stat-card { background: #0f1f30; border: 1px solid #1e3048; border-radius: 10px; padding: 0.75rem 1rem; text-align: center; }
+    .stat-val { font-family: 'JetBrains Mono',monospace; font-size: 1.6rem; font-weight: 700; color: #0d9488; line-height: 1; }
+    .stat-val.danger { color: #e11d48; }
+    .stat-val.warn { color: #ea580c; }
+    .stat-val.success { color: #4ade80; }
+    .stat-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #5a7a94; margin-top: 0.3rem; }
+
+    /* ── Main Split ── */
+    .hosp-body { display: grid; grid-template-columns: 1fr 320px; flex: 1; overflow: hidden; }
+
+    /* ── Map Panel ── */
+    .map-panel { position: relative; overflow: hidden; }
+    #hosp-map { width: 100%; height: 100%; }
+
+    /* ── Side Panel ── */
+    .hosp-side { background: #0a1520; border-left: 1px solid #1e3048; display: flex; flex-direction: column; overflow: hidden; }
+    .side-section { padding: 1rem; border-bottom: 1px solid #1e3048; }
+    .side-section h4 { font-family: 'JetBrains Mono',monospace; font-size: 0.68rem; letter-spacing: 2px; color: #5a7a94; text-transform: uppercase; margin-bottom: 0.75rem; }
+
+    /* Ambulance Status Card */
+    .amb-status-card { background: #0f1f30; border-radius: 10px; padding: 1rem; border: 1px solid #1e3048; }
+    .amb-status-card.emergency { border-color: #e11d48; box-shadow: 0 0 20px rgba(225,29,72,0.2); }
+    .amb-status-card.arrived { border-color: #4ade80; box-shadow: 0 0 20px rgba(74,222,128,0.2); }
+    .amb-id-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .amb-id-badge { font-family: 'JetBrains Mono',monospace; font-size: 0.9rem; font-weight: 700; background: rgba(225,29,72,0.15); color: #e11d48; padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid rgba(225,29,72,0.3); }
+    .amb-status-badge { font-family: 'JetBrains Mono',monospace; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700; }
+    .amb-status-badge.idle { background: rgba(90,122,148,0.2); color: #5a7a94; }
+    .amb-status-badge.emergency { background: rgba(225,29,72,0.2); color: #e11d48; animation: pulse-text 1s infinite; }
+    .amb-status-badge.arrived { background: rgba(74,222,128,0.2); color: #4ade80; }
+    @keyframes pulse-text { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+
+    /* Info grid inside card */
+    .amb-info-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.75rem; font-size: 0.82rem; }
+    .ai-label { color: #5a7a94; font-weight: 600; font-size: 0.75rem; }
+    .ai-val { font-family: 'JetBrains Mono',monospace; color: #e0e8f0; font-size: 0.82rem; }
+
+    /* Distance Countdown */
+    .dist-countdown { text-align: center; padding: 1rem; }
+    .dist-big { font-family: 'JetBrains Mono',monospace; font-size: 3rem; font-weight: 700; color: #0d9488; line-height: 1; transition: all 0.5s; }
+    .dist-big.warning { color: #ea580c; }
+    .dist-big.danger { color: #e11d48; animation: pulse-text 0.8s infinite; }
+    .dist-big.arrived { color: #4ade80; }
+    .dist-sub { font-size: 0.75rem; color: #5a7a94; text-transform: uppercase; letter-spacing: 1px; margin-top: 0.25rem; }
+    .eta-row { display: flex; justify-content: center; gap: 2rem; margin-top: 0.75rem; }
+    .eta-item { text-align: center; }
+    .eta-val { font-family: 'JetBrains Mono',monospace; font-size: 1.2rem; font-weight: 700; color: #e0e8f0; }
+    .eta-lbl { font-size: 0.65rem; text-transform: uppercase; color: #5a7a94; }
+
+    /* Ambulance List */
+    .amb-scroll { overflow-y: auto; flex: 1; }
+    .amb-list { list-style: none; padding: 0.5rem; margin: 0; }
+    .amb-list-item { background: #0f1f30; border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; border: 1px solid #1e3048; font-size: 0.82rem; }
+    .amb-list-item .ali-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+    .ali-id { font-family: 'JetBrains Mono',monospace; font-weight: 700; color: #e11d48; }
+    .ali-badge { font-size: 0.68rem; padding: 0.2rem 0.4rem; border-radius: 4px; }
+    .ali-badge.active { background: rgba(225,29,72,0.2); color: #e11d48; }
+    .ali-badge.arrived { background: rgba(74,222,128,0.2); color: #4ade80; }
+    .ali-badge.idle { background: rgba(90,122,148,0.15); color: #5a7a94; }
+    .ali-row { color: #a0b4c8; }
+    .empty-list { color: #3a5268; text-align: center; padding: 1.5rem; font-size: 0.85rem; }
+
+    /* ── ARRIVED Overlay ── */
+    .arrived-overlay { display: none; position: absolute; inset: 0; z-index: 3000; background: rgba(5,150,105,0.97); align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+    .arrived-overlay.show { display: flex; }
+    .arrived-icon { font-size: 6rem; animation: bounce-in 0.6s ease; }
+    .arrived-title { font-family: 'Manrope',sans-serif; font-size: 3.5rem; font-weight: 800; color: white; margin: 1rem 0 0.5rem; }
+    .arrived-id { font-family: 'JetBrains Mono',monospace; font-size: 1.2rem; color: rgba(255,255,255,0.8); }
+    .arrived-time { font-family: 'JetBrains Mono',monospace; font-size: 1rem; color: rgba(255,255,255,0.7); margin-top: 0.5rem; }
+    @keyframes bounce-in { 0%{transform:scale(0.3);opacity:0;} 70%{transform:scale(1.1);} 100%{transform:scale(1);opacity:1;} }
+  </style>
+</head>
+<body>
+
+<!-- Connection Status Bar -->
+<div class="conn-bar">
+  <div style="display:flex;align-items:center;gap:0.5rem;">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span id="conn-text" style="color:#4ade80;font-weight:700;">LIVE</span>
+    <span style="color:#5a7a94;">— SirenLink Hospital Node</span>
+  </div>
+  <div style="display:flex;gap:1rem;align-items:center;">
+    <span style="color:#5a7a94;">Hospital ID:</span>
+    <span style="color:#0d9488;font-weight:700;">HSP-2201</span>
+    <span style="color:#5a7a94;">|</span>
+    <span style="color:#0d9488;" id="hosp-name-top">City General Hospital</span>
+    <a href="/" style="color:#5a7a94;text-decoration:none;font-size:0.8rem;">← Home</a>
+  </div>
+</div>
+
+<!-- Nav -->
+<div class="hosp-nav">
+  <div class="nav-brand-h">🏥 SirenLink Hospital Control</div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:#5a7a94;" id="sys-time"></div>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-val danger" id="stat-active">0</div>
+    <div class="stat-lbl">Active Emergencies</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val warn" id="stat-vehicles">0</div>
+    <div class="stat-lbl">Vehicles Alerted</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val" id="stat-eta">--</div>
+    <div class="stat-lbl">ETA to Arrival</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val" id="stat-speed">0</div>
+    <div class="stat-lbl">Speed (km/h)</div>
+  </div>
+</div>
+
+<!-- Main Body -->
+<div class="hosp-body" style="flex:1;overflow:hidden;">
+
+  <!-- Map Panel -->
+  <div class="map-panel">
+    <div id="hosp-map"></div>
+    <!-- Arrived Overlay (on map) -->
+    <div class="arrived-overlay" id="arrived-overlay">
+      <div class="arrived-icon">🏥</div>
+      <div class="arrived-title">AMBULANCE ARRIVED</div>
+      <div class="arrived-id" id="arrived-amb-id">AMB-A01</div>
+      <div class="arrived-time" id="arrived-time"></div>
+      <button onclick="document.getElementById('arrived-overlay').classList.remove('show')" style="margin-top:2rem;padding:0.75rem 2rem;border:none;border-radius:8px;background:white;color:#059669;font-family:'Manrope',sans-serif;font-weight:800;cursor:pointer;font-size:1rem;">CLEAR</button>
+    </div>
+  </div>
+
+  <!-- Side Panel -->
+  <div class="hosp-side">
+    <!-- Ambulance Status Card -->
+    <div class="side-section">
+      <h4>🚑 Incoming Ambulance</h4>
+      <div class="amb-status-card" id="amb-status-card">
+        <div class="amb-id-row">
+          <span class="amb-id-badge" id="card-amb-id">AMB-A01</span>
+          <span class="amb-status-badge idle" id="card-status">STANDBY</span>
+        </div>
+        <div class="amb-info-grid">
+          <span class="ai-label">Hospital:</span><span class="ai-val" id="card-hosp">City General Hospital</span>
+          <span class="ai-label">Location:</span><span class="ai-val" id="card-loc">--</span>
+          <span class="ai-label">Speed:</span><span class="ai-val" id="card-speed">-- km/h</span>
+          <span class="ai-label">Severity:</span><span class="ai-val" id="card-sev">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Distance Countdown -->
+    <div class="side-section">
+      <h4>📏 Distance to Hospital</h4>
+      <div class="dist-countdown">
+        <div class="dist-big" id="dist-big">--</div>
+        <div class="dist-sub">Ambulance → Hospital</div>
+        <div class="eta-row">
+          <div class="eta-item"><div class="eta-val" id="eta-val">--</div><div class="eta-lbl">ETA</div></div>
+          <div class="eta-item"><div class="eta-val" id="spd-val">--</div><div class="eta-lbl">Speed</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Road Status -->
+    <div class="side-section">
+      <h4>🛣️ Road Status</h4>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:0.82rem;display:flex;flex-direction:column;gap:0.4rem;">
+        <div style="display:flex;justify-content:space-between;"><span style="color:#5a7a94;">Ambulance</span><span id="road-amb" style="color:#e0e8f0;">EN ROUTE</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:#5a7a94;">Vehicles Notified</span><span id="road-veh" style="color:#e0e8f0;">0</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:#5a7a94;">Clearance</span><span id="road-clearance" style="color:#4ade80;">READY</span></div>
+      </div>
+    </div>
+
+    <!-- Ambulance Feed List -->
+    <div class="side-section" style="border-bottom:none;padding-bottom:0;">
+      <h4>📋 Activity Feed</h4>
+    </div>
+    <div class="amb-scroll">
+      <ul class="amb-list" id="amb-feed">
+        <li class="empty-list">Waiting for emergency events...</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+// ─────────────────────────────────────────
+// State
+// ─────────────────────────────────────────
+const HOSP_ID = 'HSP-2201';
+const WS_URL  = `ws://${location.host}/ws/hospital/${HOSP_ID}`;
+
+const state = {
+  ws: null, connected: false,
+  emergency: false,
+  arrived: false,
+  ambLat: null, ambLng: null,
+  hospLat: null, hospLng: null,
+  distToHosp: null,
+  etaSeconds: null,
+  ambSpeed: 0,
+  vehiclesAlerted: 0,
+};
+
+let map, ambMarker, hospMarker, routeLine;
+let distHistory = [];
+
+// ─────────────────────────────────────────
+// Map
+// ─────────────────────────────────────────
+function initMap() {
+  map = L.map('hosp-map').setView([19.0760, 72.8777], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function createIcon(emoji, color) {
+  return L.divIcon({
+    html: `<div style="background:${color};border-radius:50%;width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white;box-shadow:0 2px 12px rgba(0,0,0,0.4);">${emoji}</div>`,
+    className: '', iconSize: [42,42], iconAnchor: [21,21], popupAnchor: [0,-22]
+  });
+}
+
+function animateMarker(marker, endPos, duration = 500) {
+  if (!marker) return;
+  const start = marker.getLatLng();
+  const startTime = performance.now();
+  
+  if (marker._animFrame) cancelAnimationFrame(marker._animFrame);
+  
+  function tick(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    const lat = start.lat + (endPos[0] - start.lat) * progress;
+    const lng = start.lng + (endPos[1] - start.lng) * progress;
+    marker.setLatLng([lat, lng]);
+    
+    if (progress < 1) {
+      marker._animFrame = requestAnimationFrame(tick);
+    } else {
+      marker._animFrame = null;
+    }
+  }
+  marker._animFrame = requestAnimationFrame(tick);
+}
+
+let currentRouteId = '';
+async function fetchHospitalRoute() {
+  if (!state.ambLat || !state.hospLat) return;
+  const routeId = `${state.ambLat.toFixed(4)},${state.ambLng.toFixed(4)}->${state.hospLat.toFixed(4)},${state.hospLng.toFixed(4)}`;
+  if (routeId === currentRouteId) return;
+  currentRouteId = routeId;
+
+  const url = `https://router.project-osrm.org/route/v1/driving/` +
+    `${state.ambLng},${state.ambLat};${state.hospLng},${state.hospLat}` +
+    `?overview=full&geometries=geojson`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.routes && data.routes.length > 0) {
+      if (routeLine) map.removeLayer(routeLine);
+      const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      routeLine = L.polyline(coords, {
+        color: '#e11d48',
+        weight: 4,
+        opacity: 0.8,
+        lineJoin: 'round',
+        lineCap: 'round'
+      }).addTo(map);
+      map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+    }
+  } catch (e) {
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline([[state.ambLat, state.ambLng], [state.hospLat, state.hospLng]], {
+      color: '#e11d48', weight: 3, opacity: 0.75, dashArray: '8,6'
+    }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+  }
+}
+
+function updateMarkers() {
+  if (state.ambLat !== null) {
+    if (!ambMarker) {
+      ambMarker = L.marker([state.ambLat, state.ambLng], {
+        icon: createIcon('🚑', '#e11d48'), zIndexOffset: 1000
+      }).addTo(map).bindPopup('🚑 AMB-A01 — Emergency Active');
+    } else {
+      animateMarker(ambMarker, [state.ambLat, state.ambLng], 500);
+    }
+  }
+  if (state.hospLat !== null) {
+    if (!hospMarker) {
+      hospMarker = L.marker([state.hospLat, state.hospLng], {
+        icon: createIcon('🏥', '#0d9488')
+      }).addTo(map).bindPopup('🏥 City General Hospital');
+    } else {
+      hospMarker.setLatLng([state.hospLat, state.hospLng]);
+    }
+  }
+  fetchHospitalRoute();
+}
+
+// ─────────────────────────────────────────
+// UI Update
+// ─────────────────────────────────────────
+function updateUI(msg) {
+  state.emergency       = msg.emergency_active || false;
+  state.arrived         = msg.arrived || false;
+  state.ambLat          = msg.ambulance_lat ?? state.ambLat;
+  state.ambLng          = msg.ambulance_lng ?? state.ambLng;
+  state.hospLat         = msg.hospital_lat  ?? state.hospLat;
+  state.hospLng         = msg.hospital_lng  ?? state.hospLng;
+  state.distToHosp      = msg.distance_to_hospital ?? state.distToHosp;
+  state.etaSeconds      = msg.eta_seconds   ?? state.etaSeconds;
+  state.ambSpeed        = msg.ambulance_speed ?? state.ambSpeed;
+  state.vehiclesAlerted = msg.vehicles_alerted ?? state.vehiclesAlerted;
+
+  updateMarkers();
+  updateStats();
+  updateDistCard();
+  updateCard();
+  updateRoadStatus();
+}
+
+function updateStats() {
+  document.getElementById('stat-active').textContent   = state.emergency ? '1' : '0';
+  document.getElementById('stat-vehicles').textContent = state.vehiclesAlerted;
+  document.getElementById('stat-eta').textContent      = state.etaSeconds !== null ? formatEta(state.etaSeconds) : '--';
+  document.getElementById('stat-speed').textContent    = state.ambSpeed ? Math.round(state.ambSpeed) : '0';
+}
+
+function updateDistCard() {
+  const d = state.distToHosp;
+  const el = document.getElementById('dist-big');
+  if (d === null || d === undefined) {
+    el.textContent = '--'; el.className = 'dist-big'; return;
+  }
+  el.textContent = formatDist(d);
+  if (d < 100) el.className = 'dist-big arrived';
+  else if (d < 500) el.className = 'dist-big danger';
+  else if (d < 1500) el.className = 'dist-big warning';
+  else el.className = 'dist-big';
+
+  document.getElementById('eta-val').textContent = state.etaSeconds !== null ? formatEta(state.etaSeconds) : '--';
+  document.getElementById('spd-val').textContent = state.ambSpeed ? `${Math.round(state.ambSpeed)} km/h` : '--';
+}
+
+function updateCard() {
+  const card = document.getElementById('amb-status-card');
+  const badge = document.getElementById('card-status');
+
+  if (state.arrived) {
+    card.className = 'amb-status-card arrived';
+    badge.textContent = 'ARRIVED'; badge.className = 'amb-status-badge arrived';
+  } else if (state.emergency) {
+    card.className = 'amb-status-card emergency';
+    badge.textContent = 'EMERGENCY ACTIVE'; badge.className = 'amb-status-badge emergency';
+  } else {
+    card.className = 'amb-status-card';
+    badge.textContent = 'STANDBY'; badge.className = 'amb-status-badge idle';
+  }
+
+  if (state.ambLat) {
+    document.getElementById('card-loc').textContent = `${state.ambLat.toFixed(4)}, ${state.ambLng.toFixed(4)}`;
+  }
+  document.getElementById('card-speed').textContent = state.ambSpeed ? `${Math.round(state.ambSpeed)} km/h` : '-- km/h';
+  document.getElementById('card-sev').textContent = state.emergency ? 'CRITICAL' : '--';
+}
+
+function updateRoadStatus() {
+  document.getElementById('road-amb').textContent = state.emergency ? 'EN ROUTE' : (state.arrived ? 'ARRIVED' : 'IDLE');
+  document.getElementById('road-amb').style.color = state.emergency ? '#ea580c' : (state.arrived ? '#4ade80' : '#5a7a94');
+  document.getElementById('road-veh').textContent = state.vehiclesAlerted;
+  document.getElementById('road-clearance').textContent = state.vehiclesAlerted > 0 ? 'NOTIFIED' : 'READY';
+}
+
+function addFeedItem(text, type = 'info') {
+  const ul = document.getElementById('amb-feed');
+  const empty = ul.querySelector('.empty-list');
+  if (empty) empty.remove();
+  const colors = { info: '#5a7a94', emergency: '#e11d48', success: '#4ade80', warn: '#ea580c' };
+  const li = document.createElement('li');
+  li.className = 'amb-list-item';
+  li.innerHTML = `
+    <div class="ali-header">
+      <span class="ali-id">AMB-A01</span>
+      <span class="ali-badge ${type === 'emergency' ? 'active' : type === 'success' ? 'arrived' : 'idle'}">${new Date().toLocaleTimeString()}</span>
+    </div>
+    <div class="ali-row" style="color:${colors[type]};">${text}</div>
+  `;
+  ul.prepend(li);
+}
+
+// ─────────────────────────────────────────
+// WebSocket
+// ─────────────────────────────────────────
+function connectWS() {
+  try {
+    state.ws = new WebSocket(WS_URL);
+    state.ws.onopen = () => { state.connected = true; setConnStatus(true); };
+    state.ws.onclose = () => { state.connected = false; setConnStatus(false); setTimeout(connectWS, 3000); };
+    state.ws.onerror = () => { state.connected = false; setConnStatus(false); };
+    state.ws.onmessage = (e) => { try { handleServerMsg(JSON.parse(e.data)); } catch(_){} };
+  } catch(e) { setTimeout(connectWS, 3000); }
+}
+
+function handleServerMsg(msg) {
+  const t = msg.type;
+
+  if (t === 'hospital_proximity_alert') {
+    updateUI(msg);
+    const miles = msg.milestone;
+    const distText = formatDist(msg.distance);
+    addFeedItem(`⚠️ PROXIMITY ALERT — Ambulance is ${distText} away!`, 'warn');
+    playHospitalNotificationSound();
+    showHospitalNotification(`⚠️ Ambulance AMB-A01 is within ${miles}! ETA: ${formatEta(msg.eta_seconds)}`);
+    return;
+  }
+
+  if (t === 'state_sync') {
+    updateUI(msg);
+    if (msg.emergency_active) addFeedItem('🔴 Active emergency in progress (synced)', 'emergency');
+    return;
+  }
+
+  if (t === 'emergency_activated') {
+    updateUI(msg);
+    addFeedItem(`🚨 EMERGENCY ACTIVATED — AMB-A01 dispatched`, 'emergency');
+    addFeedItem(`📍 Ambulance location synced`, 'info');
+    return;
+  }
+
+  if (t === 'state_update') {
+    updateUI(msg);
+    // Distance history tracking for feed (every 200m drop)
+    if (state.distToHosp !== null) {
+      const lastDist = distHistory[distHistory.length - 1];
+      if (lastDist === undefined || lastDist - state.distToHosp > 200) {
+        distHistory.push(state.distToHosp);
+        addFeedItem(`📍 Distance: ${formatDist(state.distToHosp)} | ETA: ${formatEta(state.etaSeconds)}`, 'info');
+      }
+    }
+    return;
+  }
+
+  if (t === 'ambulance_arrived') {
+    updateUI(msg);
+    state.arrived = true; state.emergency = false;
+    document.getElementById('arrived-overlay').classList.add('show');
+    document.getElementById('arrived-amb-id').textContent = 'AMB-A01';
+    document.getElementById('arrived-time').textContent = `Arrived at ${new Date().toLocaleTimeString()}`;
+    document.getElementById('dist-big').textContent = 'ARRIVED';
+    document.getElementById('dist-big').className = 'dist-big arrived';
+    addFeedItem('✅ AMBULANCE ARRIVED — Emergency completed', 'success');
+    distHistory = [];
+    updateCard();
+    return;
+  }
+
+  if (t === 'emergency_deactivated') {
+    state.emergency = false;
+    updateCard(); updateStats(); updateRoadStatus();
+    addFeedItem('Emergency deactivated', 'info');
+    distHistory = [];
+    return;
+  }
+}
+
+function setConnStatus(connected) {
+  document.getElementById('conn-dot').className = 'conn-dot' + (connected ? '' : ' red');
+  const txt = document.getElementById('conn-text');
+  txt.textContent = connected ? 'LIVE' : 'DISCONNECTED';
+  txt.style.color = connected ? '#4ade80' : '#e11d48';
+}
+
+// ─────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────
+function formatDist(m) {
+  if (m === null || m === undefined) return '--';
+  return m >= 1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m';
+}
+function formatEta(s) {
+  if (!s || s > 99999) return '--';
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+// System clock
+setInterval(() => {
+  document.getElementById('sys-time').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+
+// Hospital alerts sound and visual chimes
+function playHospitalNotificationSound() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    [440, 554, 659].forEach((freq, idx) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.06, audioCtx.currentTime + idx * 0.15);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + idx * 0.15 + 0.3);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(audioCtx.currentTime + idx * 0.15);
+      o.stop(audioCtx.currentTime + idx * 0.15 + 0.3);
+    });
+  } catch(e) {}
+}
+
+function showHospitalNotification(text) {
+  let container = document.getElementById('hosp-notification-banner');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'hosp-notification-banner';
+    container.style.cssText = 'position:fixed; top:4rem; right:1.5rem; background:#ea580c; color:white; padding:1rem 1.5rem; border-radius:8px; font-weight:700; z-index:9999; box-shadow: 0 4px 20px rgba(0,0,0,0.5); transition: all 0.5s ease; transform: translateY(-50px); opacity: 0;';
+    document.body.appendChild(container);
+  }
+  container.textContent = text;
+  container.style.transform = 'translateY(0)';
+  container.style.opacity = '1';
+  setTimeout(() => {
+    container.style.transform = 'translateY(-50px)';
+    container.style.opacity = '0';
+  }, 4000);
+}
+
+// ─────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  connectWS();
+  setConnStatus(false);
+  document.getElementById('sys-time').textContent = new Date().toLocaleTimeString();
+});
+</script>
+</body>
+</html>

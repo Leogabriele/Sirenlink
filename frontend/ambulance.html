@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SirenLink | 🚑 Ambulance Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: #0f1923; color: #e0e8f0; margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+    /* ── Connection Status Bar ── */
+    .conn-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1.5rem; background: #121f2e; border-bottom: 1px solid #1e3048; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+    .conn-indicator { display: flex; align-items: center; gap: 0.5rem; }
+    .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: pulse-dot 2s infinite; }
+    .conn-dot.red { background: #e11d48; box-shadow: 0 0 8px #e11d48; animation: none; }
+    @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+    .conn-text.live { color: #4ade80; font-weight: 700; }
+    .conn-text.disc { color: #e11d48; font-weight: 700; }
+    .conn-role { color: #5a7a94; }
+    .conn-id { color: #0d9488; font-weight: 700; }
+
+    /* ── Top Nav ── */
+    .amb-nav { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: rgba(13, 25, 40, 0.95); border-bottom: 1px solid #1e3048; }
+    .nav-brand-amb { font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 1.1rem; color: #e11d48; display: flex; align-items: center; gap: 0.5rem; }
+    .nav-brand-amb span { color: #e0e8f0; }
+
+    /* ── Main Layout ── */
+    .amb-body { display: grid; grid-template-columns: 320px 1fr; flex: 1; overflow: hidden; }
+
+    /* ── Side Panel ── */
+    .side-panel { background: #121f2e; border-right: 1px solid #1e3048; display: flex; flex-direction: column; overflow-y: auto; padding: 1rem; gap: 0.75rem; }
+    .panel-section { background: #0f1923; border: 1px solid #1e3048; border-radius: 10px; padding: 1rem; }
+    .panel-section h4 { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; letter-spacing: 2px; color: #5a7a94; text-transform: uppercase; margin-bottom: 0.75rem; }
+
+    /* ID Card */
+    .amb-id-display { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: #e11d48; text-align: center; padding: 0.5rem; }
+    .amb-id-label { text-align: center; font-size: 0.75rem; color: #5a7a94; margin-top: 0.25rem; }
+
+    /* Place Controls */
+    .place-controls { display: flex; flex-direction: column; gap: 0.5rem; }
+    .place-btn { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid #1e3048; border-radius: 8px; background: #0f1923; color: #e0e8f0; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; width: 100%; text-align: left; }
+    .place-btn:hover { border-color: #0d9488; color: #0d9488; }
+    .place-btn.active { border-color: #ea580c; background: rgba(234,88,12,0.1); color: #ea580c; }
+    .place-hint { font-size: 0.7rem; color: #3a5268; text-align: center; margin-top: 0.25rem; }
+
+    /* Emergency Button */
+    .em-btn-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
+    #btn-emergency { width: 160px; height: 160px; border-radius: 50%; border: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 0.8rem; letter-spacing: 1px; transition: all 0.3s; position: relative; }
+    #btn-emergency.idle { background: radial-gradient(circle, #e11d48, #9f1239); color: white; box-shadow: 0 0 30px rgba(225,29,72,0.4); }
+    #btn-emergency.idle:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(225,29,72,0.7); }
+    #btn-emergency.active { background: radial-gradient(circle, #fff, #fce7f3); color: #e11d48; border: 6px solid #e11d48; box-shadow: 0 0 40px rgba(225,29,72,0.8); animation: em-heartbeat 1s infinite; }
+    @keyframes em-heartbeat { 0%,100%{transform:scale(1);} 15%{transform:scale(1.06);} 30%{transform:scale(1);} 45%{transform:scale(1.04);} }
+    .em-icon { font-size: 2.5rem; margin-bottom: 0.4rem; }
+    .em-label { line-height: 1.2; text-align: center; }
+    .em-timer { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700; color: #e11d48; }
+    .em-stats-row { display: flex; gap: 1rem; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+    .em-stat { text-align: center; }
+    .em-stat-val { font-size: 1.2rem; font-weight: 700; color: #ea580c; }
+    .em-stat-lbl { color: #5a7a94; font-size: 0.65rem; text-transform: uppercase; }
+
+    /* Distance & ETA */
+    .dist-eta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .dist-card { background: #0a1520; border-radius: 8px; padding: 0.75rem; text-align: center; border: 1px solid #1e3048; }
+    .dist-val { font-family: 'JetBrains Mono', monospace; font-size: 1.2rem; font-weight: 700; color: #0d9488; }
+    .dist-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #5a7a94; margin-top: 0.2rem; }
+
+    /* Simulation Controls */
+    .sim-controls { display: flex; flex-direction: column; gap: 0.5rem; }
+    .speed-row { display: flex; align-items: center; gap: 0.5rem; }
+    .speed-lbl { font-size: 0.75rem; color: #5a7a94; flex-shrink: 0; width: 50px; }
+    #speed-slider { flex: 1; accent-color: #0d9488; }
+    .speed-val { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #e0e8f0; width: 60px; text-align: right; }
+    .sim-btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem; }
+    .sim-btn { padding: 0.5rem; border-radius: 6px; border: 1px solid #1e3048; background: #0f1923; color: #e0e8f0; cursor: pointer; font-size: 0.75rem; font-family: 'Manrope', sans-serif; font-weight: 700; transition: all 0.2s; }
+    .sim-btn:hover { border-color: #0d9488; color: #0d9488; }
+    .sim-btn.running { border-color: #ea580c; color: #ea580c; background: rgba(234,88,12,0.1); }
+    .sim-btn.danger { border-color: #e11d48; color: #e11d48; }
+    .sim-btn.danger:hover { background: rgba(225,29,72,0.1); }
+
+    /* ── Map Panel ── */
+    .map-panel { position: relative; }
+    #amb-map { width: 100%; height: 100%; }
+
+    /* Map overlay instructions */
+    .map-overlay { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(234,88,12,0.9); color: white; padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.8rem; font-weight: 700; z-index: 1000; pointer-events: none; display: none; }
+    .map-overlay.show { display: block; }
+
+    /* Arrived banner */
+    .arrived-banner { display: none; position: absolute; inset: 0; background: rgba(5,150,105,0.97); z-index: 2000; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+    .arrived-banner.show { display: flex; }
+    .arrived-title { font-family: 'Manrope', sans-serif; font-size: 3rem; font-weight: 800; color: white; }
+    .arrived-sub { font-size: 1rem; color: rgba(255,255,255,0.8); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+
+<!-- Connection Status Bar -->
+<div class="conn-bar">
+  <div class="conn-indicator">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span class="conn-text live" id="conn-text">LIVE</span>
+    <span class="conn-role">— Connected to SirenLink</span>
+  </div>
+  <div style="display:flex;gap:1rem;align-items:center;">
+    <span class="conn-role">Role:</span>
+    <span class="conn-id">🚑 AMBULANCE</span>
+    <span class="conn-role">ID:</span>
+    <span class="conn-id" id="top-amb-id">AMB-A01</span>
+  </div>
+</div>
+
+<!-- Nav -->
+<div class="amb-nav">
+  <div class="nav-brand-amb">🚨 SirenLink | <span>Ambulance Control</span></div>
+  <div style="display:flex;gap:0.5rem;align-items:center;">
+    <button onclick="resetAll()" style="padding:0.4rem 0.8rem;border:1px solid #e11d48;border-radius:6px;background:transparent;color:#e11d48;cursor:pointer;font-size:0.75rem;font-family:'Manrope',sans-serif;font-weight:700;">↺ RESET</button>
+    <a href="/" style="padding:0.4rem 0.8rem;border:1px solid #1e3048;border-radius:6px;color:#5a7a94;text-decoration:none;font-size:0.75rem;">← Home</a>
+  </div>
+</div>
+
+<!-- Body -->
+<div class="amb-body">
+  <!-- Side Panel -->
+  <div class="side-panel">
+
+    <!-- ID -->
+    <div class="panel-section">
+      <h4>Ambulance Unit</h4>
+      <div class="amb-id-display" id="amb-id">AMB-A01</div>
+      <div class="amb-id-label">SirenLink Emergency Vehicle</div>
+    </div>
+
+    <!-- Place Markers -->
+    <div class="panel-section">
+      <h4>📍 Place Markers</h4>
+      <div class="place-controls">
+        <button class="place-btn" id="btn-place-amb" onclick="setPlaceMode('ambulance')">🚑 Place Ambulance</button>
+        <button class="place-btn" id="btn-place-hosp" onclick="setPlaceMode('hospital')">🏥 Place Hospital</button>
+        <button class="place-btn" id="btn-place-veh" onclick="setPlaceMode('vehicle')">🚗 Place Vehicle</button>
+      </div>
+      <div class="place-hint" id="place-hint">Click a button, then click on the map</div>
+    </div>
+
+    <!-- Emergency Button -->
+    <div class="panel-section">
+      <h4>Emergency Control</h4>
+      <div class="em-btn-wrap">
+        <button id="btn-emergency" class="idle" onclick="toggleEmergency()">
+          <span class="em-icon">🚨</span>
+          <span class="em-label" id="em-label">START<br>EMERGENCY</span>
+        </button>
+        <div class="em-timer" id="em-timer" style="display:none;">00:00:00</div>
+        <div class="em-stats-row" id="em-stats" style="display:none;">
+          <div class="em-stat"><div class="em-stat-val" id="stat-alerted">0</div><div class="em-stat-lbl">Alerted</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Distance & ETA -->
+    <div class="panel-section">
+      <h4>📊 Status</h4>
+      <div class="dist-eta-grid">
+        <div class="dist-card"><div class="dist-val" id="dist-hosp">--</div><div class="dist-lbl">Distance</div></div>
+        <div class="dist-card"><div class="dist-val" id="eta-hosp">--</div><div class="dist-lbl">ETA</div></div>
+      </div>
+    </div>
+
+    <!-- Simulation Controls -->
+    <div class="panel-section">
+      <h4>🎮 Simulation Controls</h4>
+      <div class="sim-controls">
+        <div class="speed-row">
+          <span class="speed-lbl">Speed</span>
+          <input type="range" id="speed-slider" min="10" max="120" value="40" oninput="updateSpeed(this.value)">
+          <span class="speed-val"><span id="speed-display">40</span> km/h</span>
+        </div>
+        <div class="sim-btns">
+          <button class="sim-btn" id="btn-sim-start" onclick="startSimulation()">▶ Start</button>
+          <button class="sim-btn" id="btn-sim-pause" onclick="pauseSimulation()">⏸ Pause</button>
+          <button class="sim-btn danger" onclick="resetSimulation()">↺ Reset</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Map Panel -->
+  <div class="map-panel" style="position:relative;">
+    <div id="amb-map"></div>
+    <div class="map-overlay" id="map-overlay">Click on the map to place marker</div>
+    <!-- Arrived Banner (on map) -->
+    <div class="arrived-banner" id="arrived-banner">
+      <div style="font-size:5rem;">🏥</div>
+      <div class="arrived-title">AMBULANCE ARRIVED</div>
+      <div class="arrived-sub">Emergency successfully completed</div>
+      <button onclick="document.getElementById('arrived-banner').classList.remove('show')" style="margin-top:1.5rem;padding:0.75rem 2rem;border:none;border-radius:8px;background:white;color:#059669;font-family:'Manrope',sans-serif;font-weight:800;cursor:pointer;font-size:1rem;">DISMISS</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+// ─────────────────────────────────────────
+// State
+// ─────────────────────────────────────────
+const AMB_ID = 'AMB-A01';
+const WS_URL = `ws://${location.host}/ws/ambulance/${AMB_ID}`;
+
+const state = {
+  ws: null,
+  connected: false,
+  emergency: false,
+  ambLat: null, ambLng: null,
+  hospLat: null, hospLng: null,
+  vehLat: null,  vehLng: null,
+  speed: 40,
+  heading: 0,
+  simRunning: false,
+  simInterval: null,
+  timerInterval: null,
+  startTime: null,
+  placeMode: null,
+};
+
+let map, ambMarker, hospMarker, vehMarker, routeLine;
+
+// ─────────────────────────────────────────
+// Map Init
+// ─────────────────────────────────────────
+let vehicleMarkersLayer;
+const vehicleMarkerMap = {};  // {id -> marker}
+
+function initMap() {
+  map = L.map('amb-map', { zoomControl: true }).setView([19.0760, 72.8777], 14);
+
+  // Base road layer (default, detailed like Google Maps)
+  const roadLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19
+  });
+
+  // Satellite / aerial layer
+  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri World Imagery',
+    maxZoom: 19
+  });
+
+  // Traffic simulation overlay (OSM traffic-ish color roads)
+  const trafficLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap FR (Traffic Style)',
+    maxZoom: 19,
+    opacity: 0.7
+  });
+
+  roadLayer.addTo(map);
+
+  // Layer control (top-right toggle)
+  L.control.layers(
+    { '🗺️ Road (Default)': roadLayer, '🛰️ Satellite': satelliteLayer },
+    { '🚦 Traffic Overlay': trafficLayer }
+  ).addTo(map);
+
+  // Vehicle marker group
+  vehicleMarkersLayer = L.layerGroup().addTo(map);
+
+  map.on('click', (e) => {
+    if (!state.placeMode) return;
+    const { lat, lng } = e.latlng;
+    if (state.placeMode === 'ambulance') placeAmbulance(lat, lng);
+    else if (state.placeMode === 'hospital') placeHospital(lat, lng);
+    else if (state.placeMode === 'vehicle') placeVehicle(lat, lng);
+    setPlaceMode(null);
+  });
+}
+
+
+function createIcon(emoji, color) {
+  return L.divIcon({
+    html: `<div style="background:${color};border-radius:50%;width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white;box-shadow:0 2px 12px rgba(0,0,0,0.4);">${emoji}</div>`,
+    className: '', iconSize: [42,42], iconAnchor: [21,21], popupAnchor: [0,-22]
+  });
+}
+
+function placeAmbulance(lat, lng) {
+  state.ambLat = lat; state.ambLng = lng;
+  if (ambMarker) map.removeLayer(ambMarker);
+  ambMarker = L.marker([lat, lng], {
+    icon: createIcon('🚑', '#e11d48'), draggable: true, zIndexOffset: 1000
+  }).addTo(map).bindPopup(`🚑 ${AMB_ID}`);
+  ambMarker.on('dragend', (e) => {
+    const p = e.target.getLatLng();
+    state.ambLat = p.lat; state.ambLng = p.lng;
+    sendLocationUpdate();
+    updatePanel();
+    fetchRoute();
+  });
+  updatePanel();
+  sendLocationUpdate();
+  fetchRoute();
+}
+
+function placeHospital(lat, lng) {
+  state.hospLat = lat; state.hospLng = lng;
+  if (hospMarker) map.removeLayer(hospMarker);
+  hospMarker = L.marker([lat, lng], {
+    icon: createIcon('🏥', '#0d9488'), draggable: true
+  }).addTo(map).bindPopup('🏥 Hospital Destination');
+  hospMarker.on('dragend', (e) => {
+    const p = e.target.getLatLng();
+    state.hospLat = p.lat; state.hospLng = p.lng;
+    updatePanel();
+    sendHospitalLocation();
+    fetchRoute();
+  });
+  updatePanel();
+  sendHospitalLocation();
+  fetchRoute();
+}
+
+function placeVehicle(lat, lng) {
+  state.vehLat = lat; state.vehLng = lng;
+  if (vehMarker) map.removeLayer(vehMarker);
+  vehMarker = L.marker([lat, lng], {
+    icon: createIcon('🚗', '#ea580c'), draggable: true
+  }).addTo(map).bindPopup('🚗 Nearby Vehicle');
+  vehMarker.on('dragend', (e) => {
+    const p = e.target.getLatLng();
+    state.vehLat = p.lat; state.vehLng = p.lng;
+    sendVehicleLocation();
+  });
+  sendVehicleLocation();
+}
+
+function updateVehicleMarkersOnMap(vehicles) {
+  if (!vehicles) return;
+  const updatedIds = new Set();
+  
+  vehicles.forEach(veh => {
+    updatedIds.add(veh.id);
+    const pos = [veh.lat, veh.lng];
+    
+    let emoji = '🚗';
+    let color = '#ea580c';
+    if (veh.moved) {
+      emoji = '✅';
+      color = '#4ade80';
+    } else if (veh.instruction && veh.instruction !== 'STANDBY') {
+      emoji = '🚨';
+      color = '#e11d48';
+    }
+    
+    if (vehicleMarkerMap[veh.id]) {
+      // Update position only if not currently dragging to avoid jitter
+      if (!vehicleMarkerMap[veh.id]._dragging) {
+        vehicleMarkerMap[veh.id].setLatLng(pos);
+      }
+      vehicleMarkerMap[veh.id].setIcon(createIcon(emoji, color));
+      vehicleMarkerMap[veh.id].setPopupContent(`🚗 Vehicle ID: ${veh.id}<br>Status: ${veh.instruction || 'STANDBY'}`);
+    } else {
+      const marker = L.marker(pos, { icon: createIcon(emoji, color), draggable: true })
+        .addTo(vehicleMarkersLayer)
+        .bindPopup(`🚗 Vehicle ID: ${veh.id}<br>Status: ${veh.instruction || 'STANDBY'}`);
+      
+      marker.on('dragstart', () => {
+        marker._dragging = true;
+      });
+
+      marker.on('dragend', (e) => {
+        marker._dragging = false;
+        const p = e.target.getLatLng();
+        sendWS({
+          type: 'vehicle_location',
+          vehicle_id: veh.id,
+          lat: p.lat,
+          lng: p.lng
+        });
+      });
+
+      vehicleMarkerMap[veh.id] = marker;
+    }
+  });
+  
+  for (const id in vehicleMarkerMap) {
+    if (!updatedIds.has(id)) {
+      vehicleMarkersLayer.removeLayer(vehicleMarkerMap[id]);
+      delete vehicleMarkerMap[id];
+    }
+  }
+}
+
+// ─────────────────────────────────────────
+// Place Mode
+// ─────────────────────────────────────────
+function setPlaceMode(mode) {
+  state.placeMode = mode;
+  document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
+  const overlay = document.getElementById('map-overlay');
+  if (mode) {
+    const icons = { ambulance: '🚑', hospital: '🏥', vehicle: '🚗' };
+    overlay.textContent = `Click map to place ${icons[mode]} ${mode}`;
+    overlay.classList.add('show');
+    document.getElementById(`btn-place-${mode === 'ambulance' ? 'amb' : mode === 'hospital' ? 'hosp' : 'veh'}`).classList.add('active');
+    map.getContainer().style.cursor = 'crosshair';
+  } else {
+    overlay.classList.remove('show');
+    map.getContainer().style.cursor = '';
+  }
+}
+
+// ─────────────────────────────────────────
+// Emergency Control
+// ─────────────────────────────────────────
+function toggleEmergency() {
+  if (!state.ambLat) {
+    showToast('⚠️ Place the ambulance on the map first', 'warning');
+    return;
+  }
+  state.emergency = !state.emergency;
+  const btn = document.getElementById('btn-emergency');
+  if (state.emergency) {
+    btn.classList.remove('idle'); btn.classList.add('active');
+    document.getElementById('em-label').innerHTML = '🛑<br>EMERGENCY<br>ACTIVE';
+    document.getElementById('em-timer').style.display = 'block';
+    document.getElementById('em-stats').style.display = 'flex';
+    state.startTime = Date.now();
+    state.timerInterval = setInterval(updateTimer, 1000);
+    sendWS({
+      type: 'emergency_activate',
+      lat: state.ambLat, lng: state.ambLng,
+      hospital_lat: state.hospLat, hospital_lng: state.hospLng,
+    });
+  } else {
+    btn.classList.remove('active'); btn.classList.add('idle');
+    document.getElementById('em-label').innerHTML = 'START<br>EMERGENCY';
+    document.getElementById('em-timer').style.display = 'none';
+    document.getElementById('em-stats').style.display = 'none';
+    clearInterval(state.timerInterval);
+    sendWS({ type: 'emergency_deactivate' });
+  }
+}
+
+function updateTimer() {
+  const diff = Math.floor((Date.now() - state.startTime) / 1000);
+  const h = String(Math.floor(diff / 3600)).padStart(2, '0');
+  const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+  const s = String(diff % 60).padStart(2, '0');
+  document.getElementById('em-timer').textContent = `${h}:${m}:${s}`;
+}
+
+// ─────────────────────────────────────────
+// OSRM Road Routing
+// ─────────────────────────────────────────
+let routeWaypoints = [];   // array of [lat, lng] along the road
+let routeWaypointDists = []; // cumulative distances in meters
+let routeTotalDist = 0;
+let routeProgress = 0;     // meters travelled so far along route
+
+async function fetchRoute() {
+  if (!state.ambLat || !state.hospLat) return;
+
+  // Remove old route line
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  routeWaypoints = [];
+  routeProgress = 0;
+
+  const url = `https://router.project-osrm.org/route/v1/driving/` +
+    `${state.ambLng},${state.ambLat};${state.hospLng},${state.hospLat}` +
+    `?overview=full&geometries=geojson&steps=false`;
+
+  showToast('🗺️ Calculating road route…', 'info');
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data.routes || data.routes.length === 0) {
+      showToast('⚠️ Could not find road route', 'warning');
+      // Fallback: straight line
+      routeWaypoints = [[state.ambLat, state.ambLng], [state.hospLat, state.hospLng]];
+    } else {
+      const coords = data.routes[0].geometry.coordinates; // [lng, lat] pairs
+      routeWaypoints = coords.map(c => [c[1], c[0]]);     // convert to [lat, lng]
+    }
+
+    // Build cumulative distance array for smooth interpolation
+    routeWaypointDists = [0];
+    for (let i = 1; i < routeWaypoints.length; i++) {
+      const d = haversine(...routeWaypoints[i-1], ...routeWaypoints[i]);
+      routeWaypointDists.push(routeWaypointDists[i-1] + d);
+    }
+    routeTotalDist = routeWaypointDists[routeWaypointDists.length - 1];
+    routeProgress = 0;
+
+    // Draw coloured road polyline
+    routeLine = L.polyline(routeWaypoints, {
+      color: '#3b82f6',   // bright blue route like Google Maps
+      weight: 5,
+      opacity: 0.85,
+      lineJoin: 'round',
+      lineCap: 'round'
+    }).addTo(map);
+
+    // Fit map to show full route
+    map.fitBounds(routeLine.getBounds(), { padding: [60, 60], maxZoom: 16 });
+    showToast(`✅ Road route: ${formatDist(routeTotalDist)}`, 'info');
+    updatePanel();
+  } catch (err) {
+    showToast('⚠️ OSRM error – using straight line', 'warning');
+    routeWaypoints = [[state.ambLat, state.ambLng], [state.hospLat, state.hospLng]];
+    routeWaypointDists = [0, haversine(state.ambLat, state.ambLng, state.hospLat, state.hospLng)];
+    routeTotalDist = routeWaypointDists[1];
+  }
+}
+
+// Given distance along route, return [lat, lng] and heading
+function positionAlongRoute(dist) {
+  if (routeWaypoints.length < 2) return { lat: state.ambLat, lng: state.ambLng, heading: 0 };
+  dist = Math.min(dist, routeTotalDist);
+  // Binary search for segment
+  let lo = 0, hi = routeWaypointDists.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (routeWaypointDists[mid] <= dist) lo = mid; else hi = mid;
+  }
+  const segDist = routeWaypointDists[hi] - routeWaypointDists[lo];
+  const fraction = segDist > 0 ? (dist - routeWaypointDists[lo]) / segDist : 0;
+  const [lat1, lng1] = routeWaypoints[lo];
+  const [lat2, lng2] = routeWaypoints[hi];
+  return {
+    lat: lat1 + (lat2 - lat1) * fraction,
+    lng: lng1 + (lng2 - lng1) * fraction,
+    heading: calcBearing(lat1, lng1, lat2, lng2)
+  };
+}
+
+// ─────────────────────────────────────────
+// Simulation
+// ─────────────────────────────────────────
+function updateSpeed(val) {
+  state.speed = parseFloat(val);
+  document.getElementById('speed-display').textContent = val;
+}
+
+function startSimulation() {
+  if (!state.ambLat || !state.hospLat) {
+    showToast('⚠️ Place both Ambulance and Hospital markers first', 'warning');
+    return;
+  }
+  if (!state.emergency) {
+    showToast('⚠️ Activate emergency first', 'warning');
+    return;
+  }
+  if (routeWaypoints.length < 2) {
+    showToast('⏳ Waiting for road route to load…', 'warning');
+    fetchRoute().then(() => startSimulation());
+    return;
+  }
+  if (state.simRunning) return;
+  state.simRunning = true;
+  routeProgress = 0; // reset to ambulance start position
+  document.getElementById('btn-sim-start').classList.add('running');
+  document.getElementById('btn-sim-start').textContent = '▶ Running';
+  state.simInterval = setInterval(simulationTick, 100);
+}
+
+function pauseSimulation() {
+  if (!state.simRunning) return;
+  state.simRunning = false;
+  clearInterval(state.simInterval);
+  document.getElementById('btn-sim-start').classList.remove('running');
+  document.getElementById('btn-sim-start').textContent = '▶ Start';
+}
+
+function resetSimulation() {
+  pauseSimulation();
+  if (state.emergency) toggleEmergency();
+  [ambMarker, hospMarker, vehMarker, routeLine].forEach(m => { if (m) map.removeLayer(m); });
+  ambMarker = hospMarker = vehMarker = routeLine = null;
+  state.ambLat = state.ambLng = state.hospLat = state.hospLng = state.vehLat = state.vehLng = null;
+  routeWaypoints = []; routeProgress = 0; routeTotalDist = 0;
+  updatePanel();
+  fetch('/api/state/reset', { method: 'POST' });
+}
+
+function resetAll() { resetSimulation(); }
+
+let _wsSendCounter = 0;
+function simulationTick() {
+  if (routeWaypoints.length < 2) return;
+
+  const speedMs = state.speed * 1000 / 3600; // m/s
+  const stepDist = speedMs * 0.1;             // meters per 100ms tick
+
+  routeProgress += stepDist;
+
+  // Check arrival
+  if (routeProgress >= routeTotalDist - 5) {
+    const last = routeWaypoints[routeWaypoints.length - 1];
+    state.ambLat = last[0]; state.ambLng = last[1];
+    if (ambMarker) ambMarker.setLatLng(last);
+    pauseSimulation();
+    document.getElementById('arrived-banner').classList.add('show');
+    sendWS({ type: 'location_update', lat: state.ambLat, lng: state.ambLng, heading: state.heading, speed: state.speed });
+    return;
+  }
+
+  const pos = positionAlongRoute(routeProgress);
+  state.ambLat = pos.lat; state.ambLng = pos.lng;
+  state.heading = pos.heading;
+
+  // Move marker smoothly (every tick - no fitBounds here)
+  if (ambMarker) ambMarker.setLatLng([pos.lat, pos.lng]);
+
+  // Keep camera on ambulance with zoom 17
+  map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 17), { animate: true, duration: 0.1 });
+
+  updatePanel();
+
+  // Throttle WS sends to every 500ms (every 5 ticks) to avoid flooding
+  _wsSendCounter++;
+  if (_wsSendCounter % 5 === 0) {
+    sendLocationUpdate();
+  }
+}
+
+// ─────────────────────────────────────────
+// Panel UI Update
+// ─────────────────────────────────────────
+function updatePanel() {
+  if (state.ambLat && state.hospLat) {
+    const dist = haversine(state.ambLat, state.ambLng, state.hospLat, state.hospLng);
+    document.getElementById('dist-hosp').textContent = formatDist(dist);
+    const speedMs = state.speed * 1000 / 3600;
+    const eta = speedMs > 0 ? dist / speedMs : 0;
+    document.getElementById('eta-hosp').textContent = formatEta(eta);
+  } else {
+    document.getElementById('dist-hosp').textContent = '--';
+    document.getElementById('eta-hosp').textContent = '--';
+  }
+}
+
+function formatDist(m) {
+  return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m';
+}
+function formatEta(s) {
+  if (!s || s > 9999) return '--';
+  const m = Math.floor(s / 60), sec = Math.round(s % 60);
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+// ─────────────────────────────────────────
+// WebSocket
+// ─────────────────────────────────────────
+function connectWS() {
+  try {
+    state.ws = new WebSocket(WS_URL);
+    state.ws.onopen = () => {
+      state.connected = true;
+      setConnStatus(true);
+    };
+    state.ws.onclose = () => {
+      state.connected = false;
+      setConnStatus(false);
+      setTimeout(connectWS, 3000);
+    };
+    state.ws.onerror = () => {
+      state.connected = false;
+      setConnStatus(false);
+    };
+    state.ws.onmessage = (e) => {
+      try { handleServerMsg(JSON.parse(e.data)); } catch(_) {}
+    };
+  } catch (e) {
+    setTimeout(connectWS, 3000);
+  }
+}
+
+function sendWS(msg) {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify(msg));
+  }
+}
+
+function sendLocationUpdate() {
+  if (!state.ambLat) return;
+  sendWS({ type: 'location_update', lat: state.ambLat, lng: state.ambLng, heading: state.heading, speed: state.speed });
+}
+
+function sendHospitalLocation() {
+  if (!state.hospLat) return;
+  sendWS({ type: 'hospital_location', lat: state.hospLat, lng: state.hospLng, name: 'City General Hospital' });
+}
+
+function sendVehicleLocation() {
+  if (!state.vehLat) return;
+  sendWS({ type: 'vehicle_location', vehicle_id: 'VEH-V01', lat: state.vehLat, lng: state.vehLng });
+}
+
+function handleServerMsg(msg) {
+  if (msg.vehicles_alerted !== undefined) {
+    document.getElementById('stat-alerted').textContent = msg.vehicles_alerted;
+  }
+  if (msg.vehicles) {
+    updateVehicleMarkersOnMap(msg.vehicles);
+  }
+  if (msg.type === 'ambulance_arrived') {
+    document.getElementById('arrived-banner').classList.add('show');
+    pauseSimulation();
+  }
+  if (msg.type === 'state_sync') {
+    // Restore server state if we reconnected mid-session
+    if (msg.emergency_active && !state.emergency) {
+      // Don't auto-toggle; just update display
+    }
+  }
+}
+
+function setConnStatus(connected) {
+  document.getElementById('conn-dot').className = 'conn-dot' + (connected ? '' : ' red');
+  document.getElementById('conn-text').textContent = connected ? 'LIVE' : 'DISCONNECTED';
+  document.getElementById('conn-text').className = 'conn-text ' + (connected ? 'live' : 'disc');
+}
+
+// ─────────────────────────────────────────
+// Math
+// ─────────────────────────────────────────
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const dLat = r(lat2 - lat1), dLng = r(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function calcBearing(lat1, lng1, lat2, lng2) {
+  const r = x => x * Math.PI / 180;
+  const dLng = r(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(r(lat2));
+  const x = Math.cos(r(lat1)) * Math.sin(r(lat2)) - Math.sin(r(lat1)) * Math.cos(r(lat2)) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// ─────────────────────────────────────────
+// Toast
+// ─────────────────────────────────────────
+function showToast(msg, type = 'info') {
+  let t = document.getElementById('sl-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'sl-toast';
+    t.style.cssText = 'position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);padding:0.75rem 1.5rem;border-radius:8px;font-weight:700;font-size:0.875rem;z-index:9999;transition:opacity 0.3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = type === 'warning' ? '#ea580c' : '#0d9488';
+  t.style.color = 'white';
+  t.style.opacity = '1';
+  clearTimeout(t._to);
+  t._to = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
+// ─────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  connectWS();
+  setConnStatus(false);
+});
+</script>
+</body>
+</html>
