@@ -65,7 +65,8 @@ TinyGPSPlus gps;
 HardwareSerial gpsSerial(2); // Hardware UART 2
 
 bool emergencyActive = false;
-unsigned long lastButtonPress = 1000; // Start with 1s offset to prevent boot-trigger
+bool lastButtonState = HIGH;  // Global — will be set to actual pin state in setup()
+unsigned long lastButtonPress = 0;
 unsigned long lastLoRaBroadcast = 0;
 unsigned long lastCloudSync = 0;
 unsigned long lastBuzzerToggle = 0;
@@ -96,6 +97,11 @@ void setup() {
   digitalWrite(SIREN_LED_PIN, LOW);
   digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(STATUS_LED_PIN, LOW);
+
+  // Read ACTUAL button pin state at boot — prevents fake falling edge detection
+  delay(50); // Short settle delay for pin to stabilize
+  lastButtonState = digitalRead(EMERGENCY_BTN_PIN);
+  Serial.printf("🔘 Button pin at boot: %s\n", lastButtonState == HIGH ? "HIGH (not pressed)" : "LOW (check wiring!)");
 
   // Initialize GPS Serial
   gpsSerial.begin(GPS_BAUDRATE, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
@@ -167,8 +173,6 @@ void loop() {
 void checkButton() {
   // Ignore button during first 2 seconds after boot (prevents false trigger on startup)
   if (millis() < 2000) return;
-
-  static bool lastButtonState = HIGH; // Track previous button state for edge detection
 
   bool currentState = digitalRead(EMERGENCY_BTN_PIN);
 
