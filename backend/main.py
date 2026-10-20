@@ -673,7 +673,7 @@ async def update_esp32(req: schemas.ESP32Update, db: Session = Depends(get_db)):
                     **sim_state
                 })
 
-        # Broadcast targeted instructions to all vehicle clients
+        # Broadcast targeted instructions to registered vehicle clients
         for vid, vdata in vehicle_registry.items():
             await send_to_client("vehicle", vid, {
                 "type": "state_update",
@@ -683,6 +683,16 @@ async def update_esp32(req: schemas.ESP32Update, db: Session = Depends(get_db)):
                 **sim_state,
                 "vehicles": _vehicle_list()
             })
+
+        # Also broadcast emergency alert to ALL vehicle WebSocket clients
+        # (covers mobile web app users not yet in vehicle_registry)
+        await send_to_role("vehicle", {
+            "type": "state_update",
+            "vehicle_instruction": sim_state.get("vehicle_instruction", "STANDBY"),
+            "distance_to_vehicle": None,
+            **sim_state,
+            "vehicles": _vehicle_list()
+        })
 
         # Broadcast state to hospitals + ambulances
         await send_to_role("hospital", {"type": "state_update", **sim_state, "vehicles": _vehicle_list()})

@@ -38,7 +38,7 @@
 #define LORA_MOSI    23
 #define LORA_SS      5     // NSS / CS
 #define LORA_RST     14    // RESET
-#define LORA_DIO0    2     // IRQ (Interrupt)
+#define LORA_DIO0    26    // IRQ (Interrupt) — moved from GPIO2 to avoid LED conflict
 #define LORA_BAND    433E6 // 433E6 for Asia/Europe, 868E6 or 915E6 for US
 
 // --- GPS Module (NEO-6M) Serial2 Pins ---
@@ -56,7 +56,7 @@
 const char* AMBULANCE_ID = "AMB-A01";
 const char* WIFI_SSID     = "Ray";     // Change to your Wi-Fi SSID
 const char* WIFI_PASSWORD = "987654321"; // Change to your Wi-Fi Password
-const char* SERVER_URL    = "http://10.0.12.210:8000/api/esp32/update"; // SirenLink backend API
+const char* SERVER_URL    = "https://sirenlink.onrender.com/api/esp32/update"; // SirenLink backend API
 
 // =========================================================================================
 // 2. GLOBAL OBJECTS & VARIABLES
@@ -65,7 +65,7 @@ TinyGPSPlus gps;
 HardwareSerial gpsSerial(2); // Hardware UART 2
 
 bool emergencyActive = false;
-unsigned long lastButtonPress = 0;
+unsigned long lastButtonPress = 1000; // Start with 1s offset to prevent boot-trigger
 unsigned long lastLoRaBroadcast = 0;
 unsigned long lastCloudSync = 0;
 unsigned long lastBuzzerToggle = 0;
@@ -165,6 +165,9 @@ void loop() {
 // =========================================================================================
 
 void checkButton() {
+  // Ignore button during first 2 seconds after boot (prevents false trigger on startup)
+  if (millis() < 2000) return;
+
   if (digitalRead(EMERGENCY_BTN_PIN) == LOW) {
     if (millis() - lastButtonPress > 400) { // 400ms debounce
       lastButtonPress = millis();
