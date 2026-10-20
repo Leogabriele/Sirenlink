@@ -168,8 +168,13 @@ void checkButton() {
   // Ignore button during first 2 seconds after boot (prevents false trigger on startup)
   if (millis() < 2000) return;
 
-  if (digitalRead(EMERGENCY_BTN_PIN) == LOW) {
-    if (millis() - lastButtonPress > 400) { // 400ms debounce
+  static bool lastButtonState = HIGH; // Track previous button state for edge detection
+
+  bool currentState = digitalRead(EMERGENCY_BTN_PIN);
+
+  // Only trigger on FALLING EDGE (HIGH → LOW), not while held down
+  if (currentState == LOW && lastButtonState == HIGH) {
+    if (millis() - lastButtonPress > 800) { // 800ms debounce window
       lastButtonPress = millis();
       emergencyActive = !emergencyActive;
 
@@ -186,6 +191,8 @@ void checkButton() {
       Serial.println("---------------------------------------------\n");
     }
   }
+
+  lastButtonState = currentState; // Save state for next loop
 }
 
 void handleSirenAndAlarm() {
