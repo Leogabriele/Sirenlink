@@ -488,6 +488,59 @@ function addHistory(instruction, dist) {
 }
 
 // ─────────────────────────────────────────
+// Phone GPS — Real Location
+// ─────────────────────────────────────────
+let gpsWatchId = null;
+
+function startPhoneGPS() {
+  if (!navigator.geolocation) {
+    console.warn('Geolocation not supported, using random placement');
+    fallbackRandomPlace();
+    return;
+  }
+
+  // Show GPS acquiring status
+  const tip = document.getElementById('map-tip');
+  if (tip) tip.innerHTML = '📡 Acquiring your GPS location...';
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      console.log(`📍 Phone GPS: ${lat}, ${lng}`);
+      placeMyVehicle(lat, lng);
+
+      // Watch for continuous GPS updates
+      if (gpsWatchId) navigator.geolocation.clearWatch(gpsWatchId);
+      gpsWatchId = navigator.geolocation.watchPosition(
+        (p) => {
+          state.vehLat = p.coords.latitude;
+          state.vehLng = p.coords.longitude;
+          if (vehMarker) vehMarker.setLatLng([state.vehLat, state.vehLng]);
+          updateMyLocation();
+          sendVehicleLocation();
+          recalcInstruction();
+        },
+        null,
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      );
+    },
+    (err) => {
+      console.warn('GPS error:', err.message, '— using random placement');
+      fallbackRandomPlace();
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+  );
+}
+
+function fallbackRandomPlace() {
+  // Fallback: place vehicle near Mumbai if GPS not available
+  const offsetLat = (Math.random() - 0.5) * 0.015;
+  const offsetLng = (Math.random() - 0.5) * 0.015;
+  placeMyVehicle(19.0760 + offsetLat, 72.8777 + offsetLng);
+}
+
+// ─────────────────────────────────────────
 // WebSocket
 // ─────────────────────────────────────────
 function connectWS() {
@@ -499,10 +552,8 @@ function connectWS() {
       if (state.vehLat) {
         sendVehicleLocation();
       } else {
-        // Automatically place vehicle with random offset in Mumbai on load
-        const offsetLat = (Math.random() - 0.5) * 0.015;
-        const offsetLng = (Math.random() - 0.5) * 0.015;
-        placeMyVehicle(19.0760 + offsetLat, 72.8777 + offsetLng);
+        // Try to get real phone GPS first
+        startPhoneGPS();
       }
     };
     state.ws.onclose = () => { state.connected = false; setConnStatus(false); setTimeout(connectWS, 3000); };
@@ -559,6 +610,8 @@ function handleServerMsg(msg) {
         } else {
           animateMarker(ambMarker, [state.ambLat, state.ambLng], 500);
         }
+        // Recalculate instruction whenever ambulance moves
+        recalcInstruction();
       }
     }
     if (msg.hospital_lat !== null && msg.hospital_lat !== undefined) {
@@ -630,10 +683,13 @@ function handleServerMsg(msg) {
         applyInstruction('STANDBY', null);
       }
       serverEmergencyActive = false;
-    } else if (msg.vehicle_instruction) {
-      // Use server-computed instruction
+    } else if (msg.vehicle_instruction && msg.vehicle_instruction !== 'STANDBY') {
+      // Use server-computed instruction if it's meaningful
       const dist = msg.distance_to_vehicle;
       applyInstruction(msg.vehicle_instruction, dist);
+    } else if (serverEmergencyActive) {
+      // Server says emergency is ON but no specific instruction — recalc locally using phone GPS
+      recalcInstruction();
     }
   }
 }
