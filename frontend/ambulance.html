@@ -208,7 +208,8 @@
 // State
 // ─────────────────────────────────────────
 const AMB_ID = 'AMB-A01';
-const WS_URL = `ws://${location.host}/ws/ambulance/${AMB_ID}`;
+const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = `${WS_PROTOCOL}://${location.host}/ws/ambulance/${AMB_ID}`;
 
 const state = {
   ws: null,
@@ -707,15 +708,53 @@ function handleServerMsg(msg) {
   if (msg.vehicles) {
     updateVehicleMarkersOnMap(msg.vehicles);
   }
+  
+  // Sync Emergency State from Hardware / Server
+  if (msg.emergency_active !== undefined) {
+    if (msg.emergency_active && !state.emergency) {
+      state.emergency = true;
+      const btn = document.getElementById('btn-emergency');
+      btn.classList.remove('idle'); btn.classList.add('active');
+      document.getElementById('em-label').innerHTML = '🛑<br>EMERGENCY<br>ACTIVE';
+      document.getElementById('em-timer').style.display = 'block';
+      document.getElementById('em-stats').style.display = 'flex';
+      state.startTime = msg.emergency_start_time ? new Date(msg.emergency_start_time).getTime() : Date.now();
+      clearInterval(state.timerInterval);
+      state.timerInterval = setInterval(updateTimer, 1000);
+    } else if (!msg.emergency_active && state.emergency && !state.simRunning) {
+      state.emergency = false;
+      const btn = document.getElementById('btn-emergency');
+      btn.classList.remove('active'); btn.classList.add('idle');
+      document.getElementById('em-label').innerHTML = 'START<br>EMERGENCY';
+      document.getElementById('em-timer').style.display = 'none';
+      document.getElementById('em-stats').style.display = 'none';
+      clearInterval(state.timerInterval);
+    }
+  }
+
+  // If live GPS coordinates come from physical ESP32 and local simulation is not overriding
+  if (!state.simRunning && msg.ambulance_lat !== null && msg.ambulance_lat !== undefined) {
+    state.ambLat = msg.ambulance_lat;
+    state.ambLng = msg.ambulance_lng;
+    state.heading = msg.ambulance_heading || 0;
+    if (msg.ambulance_speed !== undefined) {
+      state.speed = msg.ambulance_speed;
+      document.getElementById('speed-display').textContent = Math.round(state.speed);
+      document.getElementById('speed-slider').value = Math.round(state.speed);
+    }
+    if (ambMarker) {
+      ambMarker.setLatLng([state.ambLat, state.ambLng]);
+    } else {
+      ambMarker = L.marker([state.ambLat, state.ambLng], {
+        icon: createIcon('🚑', '#e11d48'), draggable: true, zIndexOffset: 1000
+      }).addTo(map).bindPopup(`🚑 ${AMB_ID}`);
+    }
+    updatePanel();
+  }
+
   if (msg.type === 'ambulance_arrived') {
     document.getElementById('arrived-banner').classList.add('show');
     pauseSimulation();
-  }
-  if (msg.type === 'state_sync') {
-    // Restore server state if we reconnected mid-session
-    if (msg.emergency_active && !state.emergency) {
-      // Don't auto-toggle; just update display
-    }
   }
 }
 

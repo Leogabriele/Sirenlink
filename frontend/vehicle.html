@@ -273,7 +273,8 @@ function getOrCreateVehicleId() {
   return id;
 }
 const VEH_ID = getOrCreateVehicleId();
-const WS_URL = `ws://${location.host}/ws/vehicle/${VEH_ID}`;
+const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = `${WS_PROTOCOL}://${location.host}/ws/vehicle/${VEH_ID}`;
 
 const state = {
   ws: null,

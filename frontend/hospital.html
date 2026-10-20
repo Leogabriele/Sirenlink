@@ -215,7 +215,8 @@
 // State
 // ─────────────────────────────────────────
 const HOSP_ID = 'HSP-2201';
-const WS_URL  = `ws://${location.host}/ws/hospital/${HOSP_ID}`;
+const WS_PROTOCOL = location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL  = `${WS_PROTOCOL}://${location.host}/ws/hospital/${HOSP_ID}`;
 
 const state = {
   ws: null, connected: false,

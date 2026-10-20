@@ -45,6 +45,7 @@ class ESP32Update(BaseModel):
     latitude: float
     longitude: float
     speed: Optional[float] = 0.0
+    heading: Optional[float] = 0.0
     emergency_active: Optional[bool] = False
     buzzer_status: Optional[bool] = False
 

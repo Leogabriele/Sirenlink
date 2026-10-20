@@ -164,7 +164,8 @@ const app = {
         if (!this.state.role || !this.state.id) return;
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) return;
 
-        const wsUrl = `ws://${window.location.host}/ws/${this.state.role}/${this.state.id}`;
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${wsProtocol}://${window.location.host}/ws/${this.state.role}/${this.state.id}`;
         try {
             this.state.ws = new WebSocket(wsUrl);
         } catch(e) {

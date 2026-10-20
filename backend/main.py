@@ -605,22 +605,90 @@ def get_system_status(db: Session = Depends(get_db)):
 
 @app.post("/api/esp32/update")
 async def update_esp32(req: schemas.ESP32Update, db: Session = Depends(get_db)):
-    await update_location(
-        schemas.LocationUpdate(
-            identifier=req.device_id,
-            latitude=req.latitude,
-            longitude=req.longitude,
-            speed=req.speed,
-        ),
-        db,
-    )
-    if req.buzzer_status:
+    """Receives live GPS & emergency switch telemetry from physical Ambulance ESP32 unit."""
+    is_emergency = bool(req.emergency_active or req.buzzer_status)
+    
+    # Update state
+    sim_state["ambulance_lat"]     = req.latitude
+    sim_state["ambulance_lng"]     = req.longitude
+    sim_state["ambulance_speed"]   = req.speed if req.speed is not None else 40.0
+    sim_state["ambulance_heading"] = req.heading if req.heading is not None else 0.0
+
+    # Handle Emergency State Transition from hardware button
+    if is_emergency and not sim_state["emergency_active"]:
+        sim_state["emergency_active"]     = True
+        sim_state["arrived"]              = False
+        sim_state["emergency_start_time"] = datetime.utcnow().isoformat()
+        hospital_alerts_sent.clear()
+        for vdata in vehicle_registry.values():
+            vdata["moved"] = False
+            vdata["instruction"] = "STANDBY"
         amb = db.query(models.Ambulance).filter(models.Ambulance.vehicle_number == req.device_id).first()
-        if amb and amb.status != "emergency":
-            await activate_emergency(
-                schemas.EmergencyActivate(ambulance_id=req.device_id, severity="critical"), db
-            )
-    return {"message": "ESP32 updated"}
+        if amb:
+            amb.status = "emergency"
+            db.commit()
+    elif not is_emergency and sim_state["emergency_active"]:
+        sim_state["emergency_active"]    = False
+        sim_state["vehicle_instruction"] = "STANDBY"
+        sim_state["vehicles_alerted"]    = 0
+        hospital_alerts_sent.clear()
+        for vdata in vehicle_registry.values():
+            vdata["instruction"] = "STANDBY"
+        amb = db.query(models.Ambulance).filter(models.Ambulance.vehicle_number == req.device_id).first()
+        if amb:
+            amb.status = "idle"
+            db.commit()
+
+    update_computed_state()
+
+    # Arrival detection: ambulance within 30m of hospital
+    dist_h = sim_state["distance_to_hospital"]
+    if dist_h is not None and dist_h < 30 and not sim_state["arrived"] and sim_state["emergency_active"]:
+        sim_state["arrived"]          = True
+        sim_state["emergency_active"] = False
+        sim_state["vehicle_instruction"] = "ROAD_CLEARED"
+        for vdata in vehicle_registry.values():
+            vdata["instruction"] = "ROAD_CLEARED"
+        hospital_alerts_sent.clear()
+        await broadcast({"type": "ambulance_arrived", **sim_state, "vehicles": _vehicle_list()})
+    else:
+        # Hospital proximity milestone alerts (500m and 100m)
+        if dist_h is not None and sim_state["emergency_active"]:
+            if dist_h < 500 and "500m" not in hospital_alerts_sent:
+                hospital_alerts_sent.add("500m")
+                await send_to_role("hospital", {
+                    "type": "hospital_proximity_alert",
+                    "milestone": "500m",
+                    "distance": dist_h,
+                    "eta_seconds": sim_state["eta_seconds"],
+                    **sim_state
+                })
+            if dist_h < 100 and "100m" not in hospital_alerts_sent:
+                hospital_alerts_sent.add("100m")
+                await send_to_role("hospital", {
+                    "type": "hospital_proximity_alert",
+                    "milestone": "100m",
+                    "distance": dist_h,
+                    "eta_seconds": sim_state["eta_seconds"],
+                    **sim_state
+                })
+
+        # Broadcast targeted instructions to all vehicle clients
+        for vid, vdata in vehicle_registry.items():
+            await send_to_client("vehicle", vid, {
+                "type": "state_update",
+                "for_vehicle": vid,
+                "vehicle_instruction": vdata["instruction"],
+                "distance_to_vehicle": vdata["dist"],
+                **sim_state,
+                "vehicles": _vehicle_list()
+            })
+
+        # Broadcast state to hospitals + ambulances
+        await send_to_role("hospital", {"type": "state_update", **sim_state, "vehicles": _vehicle_list()})
+        await send_to_role("ambulance", {"type": "state_update", **sim_state, "vehicles": _vehicle_list()})
+
+    return {"message": "ESP32 telemetry processed", "status": "ok", "emergency_active": sim_state["emergency_active"]}
 
 # ─────────────────────────────────────────────────────────────
 # Serve frontend static files at root
